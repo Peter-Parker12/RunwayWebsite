@@ -1,5 +1,11 @@
 // TIDE — shared interaction script
 
+// Messages-to-the-Tide backend config.
+// MESSAGES_API: your deployed Cloudflare Worker URL (handles new submissions).
+// MESSAGES_FEED: raw GitHub URL for the current stored messages (public, read-only).
+const MESSAGES_API = 'https://REPLACE-WITH-YOUR-WORKER.workers.dev';
+const MESSAGES_FEED = 'https://raw.githubusercontent.com/daonhathaibannha/RunwayWebsite/main/data/messages.json';
+
 document.addEventListener('DOMContentLoaded', () => {
 
   // Highlight current page in nav
@@ -60,20 +66,78 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Simple guestbook form (messages.html) — stores in-memory for demo only
+  // Guestbook form (messages.html) — reads/writes data/messages.json via
+  // a Cloudflare Worker backend, so messages persist and are shared across
+  // all visitors. See worker/README.md for setup.
   const msgForm = document.getElementById('guestbook-form');
+  const msgList = document.getElementById('guestbook-list');
+
+  function renderMessage(entry, { prepend = false } = {}) {
+    const card = document.createElement('div');
+    card.className = 'msg-card reveal in';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'msg-name';
+    nameEl.textContent = entry.name;
+
+    const textEl = document.createElement('p');
+    textEl.className = 'msg-text';
+    textEl.textContent = entry.message;
+
+    card.append(nameEl, textEl);
+    if (prepend) msgList.prepend(card);
+    else msgList.append(card);
+  }
+
+  if (msgList) {
+    msgList.innerHTML = '<p class="form-note">Loading messages…</p>';
+    fetch(MESSAGES_FEED, { cache: 'no-store' })
+      .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to load')))
+      .then(entries => {
+        msgList.innerHTML = '';
+        if (!entries.length) {
+          msgList.innerHTML = '<p class="form-note">No messages yet — be the first to leave one.</p>';
+          return;
+        }
+        entries.forEach(entry => renderMessage(entry));
+      })
+      .catch(() => {
+        msgList.innerHTML = '<p class="form-note">Couldn\'t load messages right now. Please try again later.</p>';
+      });
+  }
+
   if (msgForm) {
-    msgForm.addEventListener('submit', (e) => {
+    msgForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = document.getElementById('msg-name').value.trim();
-      const text = document.getElementById('msg-text').value.trim();
-      if (!name || !text) return;
-      const list = document.getElementById('guestbook-list');
-      const card = document.createElement('div');
-      card.className = 'msg-card reveal in';
-      card.innerHTML = `<div class="msg-name">${name}</div><p class="msg-text">${text}</p>`;
-      list.prepend(card);
-      msgForm.reset();
+      const message = document.getElementById('msg-text').value.trim();
+      if (!name || !message) return;
+
+      const submitBtn = msgForm.querySelector('button[type="submit"]');
+      const originalLabel = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending…';
+
+      try {
+        const res = await fetch(MESSAGES_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, message }),
+        });
+        if (!res.ok) throw new Error('Request failed');
+        const { entry } = await res.json();
+        if (msgList) {
+          const emptyNote = msgList.querySelector('.form-note');
+          if (emptyNote) emptyNote.remove();
+          renderMessage(entry, { prepend: true });
+        }
+        msgForm.reset();
+      } catch (err) {
+        alert('Sorry, your message could not be sent. Please try again.');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
+      }
     });
   }
 
