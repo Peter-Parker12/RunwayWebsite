@@ -46,14 +46,46 @@ document.addEventListener('DOMContentLoaded', () => {
   }, { threshold: 0.15 });
   revealEls.forEach(el => io.observe(el));
 
-  // RSVP form (invitation-box.html) — demo confirmation only
+  // RSVP form (invitation-box.html) — submits to the backend, which
+  // saves the RSVP and emails the designated mailbox.
   const rsvpForm = document.getElementById('rsvp-form');
   if (rsvpForm) {
-    rsvpForm.addEventListener('submit', (e) => {
+    rsvpForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+
+      const channels = Array.from(rsvpForm.querySelectorAll('input[name="channel"]:checked')).map(c => c.value);
+      const payload = {
+        fullname: document.getElementById('rsvp-fullname').value.trim(),
+        arrival: document.getElementById('rsvp-time').value.trim(),
+        allergy: document.getElementById('rsvp-allergy').value.trim(),
+        transport: document.getElementById('rsvp-transport').value.trim(),
+        email: document.getElementById('rsvp-email').value.trim(),
+        channels,
+      };
+
+      const submitBtn = rsvpForm.querySelector('button[type="submit"]');
+      const originalLabel = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending…';
+
       const note = document.getElementById('rsvp-confirm');
-      note.style.display = 'block';
-      rsvpForm.reset();
+      note.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/rsvp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('Request failed');
+        note.style.display = 'block';
+        rsvpForm.reset();
+      } catch (err) {
+        alert('Sorry, your RSVP could not be sent. Please try again.');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
+      }
     });
   }
 });
