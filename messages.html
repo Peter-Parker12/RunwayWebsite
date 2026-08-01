@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Messages to the Tide | TIDE — Hamvcl</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="index.html" class="brand">TIDE</a>
+  <button class="nav-toggle" aria-label="Menu"><span></span><span></span><span></span></button>
+  <ul class="nav-links">
+    <li><a href="index.html">Home</a></li>
+    <li><a href="about-tide.html">About Tide</a></li>
+    <li><a href="collection.html">Collection</a></li>
+    <li class="has-sub"><a href="event-info.html">Event Information</a>
+      <ul class="sub-menu">
+        <li><a href="event-info.html#venue">Venue</a></li>
+        <li><a href="event-info.html#schedule">Schedule</a></li>
+        <li><a href="event-info.html#run-of-show">Run of Show</a></li>
+        <li><a href="event-info.html#contact">Contact</a></li>
+      </ul>
+    </li>
+    <li class="has-sub"><a href="invitation-box.html">Invitation Box</a>
+      <ul class="sub-menu">
+        <li><a href="invitation-box.html#welcome-letter">Welcome Letter</a></li>
+        <li><a href="invitation-box.html#gift-box">Your Gift Box</a></li>
+        <li><a href="invitation-box.html#rsvp">RSVP</a></li>
+      </ul>
+    </li>
+    <li><a href="soundtrack.html">Soundtrack</a></li>
+    <li><a href="journal.html">Tide Journal</a></li>
+    <li><a href="archive.html">The Archive</a></li>
+    <li><a href="messages.html">Messages to the Tide</a></li>
+    <li><a href="credits.html">Credits</a></li>
+  </ul>
+</nav>
+
+<header class="page-hero">
+  <span class="eyebrow reveal">A Page of Its Own</span>
+  <h1 class="reveal reveal-delay-1">To the Tide</h1>
+  <p class="intro reveal reveal-delay-2" style="max-width:640px; margin:0 auto;">
+    Leave a wish, a memory, a reflection. These messages will later be printed into the Tide archive.
+    <span class="vi">Để lại lời chúc, kỷ niệm hoặc cảm nhận của bạn — những dòng chữ này sẽ được in thành một phần của kho lưu trữ Tide.</span>
+  </p>
+</header>
+
+<section>
+  <div class="container">
+    <div class="grid-2">
+      <form id="guestbook-form" class="reveal">
+        <div class="field">
+          <label for="msg-name">Your Name</label>
+          <input type="text" id="msg-name" required>
+        </div>
+        <div class="field">
+          <label for="msg-text">Your Message</label>
+          <textarea id="msg-text" placeholder="A wish, a memory, a reflection..." required></textarea>
+        </div>
+        <div class="submit-row">
+          <button type="submit" class="btn">Leave a Message</button>
+        </div>
+        <p class="form-note">Prototype only — messages here are shown for this session and are not saved permanently yet.</p>
+      </form>
+
+      <div class="reveal reveal-delay-1">
+        <span class="eyebrow">From Guests</span>
+        <div id="guestbook-list" style="margin-top:1.4rem;">
+          <div class="msg-card">
+            <div class="msg-name">A. Nguyen</div>
+            <p class="msg-text">Eight years in the making — can't wait to see where the tide takes you next.</p>
+          </div>
+          <div class="msg-card">
+            <div class="msg-name">M. Tran</div>
+            <p class="msg-text">So proud of this journey. Here's to new shores.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span class="brand">TIDE</span>
+  <p>A Private Runway &amp; Gathering — Hamvcl, August 14th 2026</p>
+  <div class="foot-links">
+    <a href="index.html">Home</a>
+    <a href="archive.html">Archive</a>
+    <a href="journal.html">Tide Journal</a>
+    <a href="credits.html">Credits</a>
+  </div>
+  <p class="fine">By invitation only. © 2026 Hamvcl.</p>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

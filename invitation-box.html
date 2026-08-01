@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invitation Box | TIDE — Hamvcl</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="index.html" class="brand">TIDE</a>
+  <button class="nav-toggle" aria-label="Menu"><span></span><span></span><span></span></button>
+  <ul class="nav-links">
+    <li><a href="index.html">Home</a></li>
+    <li><a href="about-tide.html">About Tide</a></li>
+    <li><a href="collection.html">Collection</a></li>
+    <li class="has-sub"><a href="event-info.html">Event Information</a>
+      <ul class="sub-menu">
+        <li><a href="event-info.html#venue">Venue</a></li>
+        <li><a href="event-info.html#schedule">Schedule</a></li>
+        <li><a href="event-info.html#run-of-show">Run of Show</a></li>
+        <li><a href="event-info.html#contact">Contact</a></li>
+      </ul>
+    </li>
+    <li class="has-sub"><a href="invitation-box.html">Invitation Box</a>
+      <ul class="sub-menu">
+        <li><a href="invitation-box.html#welcome-letter">Welcome Letter</a></li>
+        <li><a href="invitation-box.html#gift-box">Your Gift Box</a></li>
+        <li><a href="invitation-box.html#rsvp">RSVP</a></li>
+      </ul>
+    </li>
+    <li><a href="soundtrack.html">Soundtrack</a></li>
+    <li><a href="journal.html">Tide Journal</a></li>
+    <li><a href="archive.html">The Archive</a></li>
+    <li><a href="messages.html">Messages to the Tide</a></li>
+    <li><a href="credits.html">Credits</a></li>
+  </ul>
+</nav>
+
+<header class="page-hero">
+  <span class="eyebrow reveal">Invitation Box</span>
+  <h1 class="reveal reveal-delay-1">What Awaits You</h1>
+  <p class="intro reveal reveal-delay-2" style="max-width:640px; margin:0 auto;">
+    Every guest arrives to a welcome letter, a customized gift, a note from the founder,
+    and the evening's run of show and menu.
+    <span class="vi">Mỗi vị khách sẽ nhận được thư chào mừng, quà tặng, thư từ nhà sáng lập cùng chương trình và thực đơn của buổi tối.</span>
+  </p>
+</header>
+
+<section id="welcome-letter">
+  <div class="container">
+    <div class="grid-2">
+      <div class="ph ph-tall reveal" data-label="Welcome Letter"></div>
+      <div class="reveal reveal-delay-1">
+        <span class="eyebrow">Welcome Letter</span>
+        <h2>A note, before the night begins.</h2>
+        <p style="margin-top:1rem;">
+          A short letter awaits each guest — a word of thanks, and an introduction to the evening ahead.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="gift-box">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">Your Gift Box</span>
+      <h2>A keepsake of the evening.</h2>
+      <p class="vi">Quà tặng dành riêng cho khách mời.</p>
+    </div>
+    <div class="grid-3 reveal reveal-delay-1">
+      <div class="card">
+        <div class="ph ph-square" data-label="Founder Notes"></div>
+        <h3 style="margin-top:1.2rem;">Founder Notes</h3>
+      </div>
+      <div class="card">
+        <div class="ph ph-square" data-label="Run of Show + Menu"></div>
+        <h3 style="margin-top:1.2rem;">Run of Show + Menu</h3>
+      </div>
+      <div class="card">
+        <div class="ph ph-square" data-label="Look Card"></div>
+        <h3 style="margin-top:1.2rem;">Look Card</h3>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="rsvp">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">RSVP</span>
+      <h2>Reserve Your Place</h2>
+      <p class="vi">Vui lòng xác nhận tham dự trước ngày sự kiện.</p>
+    </div>
+
+    <form id="rsvp-form" class="reveal reveal-delay-1">
+      <div class="field">
+        <label for="rsvp-fullname">Full Name (Nickname)</label>
+        <input type="text" id="rsvp-fullname" name="fullname" required>
+      </div>
+
+      <div class="field">
+        <label for="rsvp-time">Arrival Time on August 14th</label>
+        <input type="text" id="rsvp-time" name="arrival" placeholder="e.g. 18:40" required>
+      </div>
+
+      <div class="field">
+        <label for="rsvp-allergy">Food Allergies (if any)</label>
+        <input type="text" id="rsvp-allergy" name="allergy" placeholder="None / please specify">
+      </div>
+
+      <div class="field">
+        <label for="rsvp-transport">Mode of Transportation</label>
+        <input type="text" id="rsvp-transport" name="transport" placeholder="e.g. Car, Taxi, Motorbike">
+      </div>
+
+      <div class="field">
+        <label for="rsvp-email">Email</label>
+        <input type="email" id="rsvp-email" name="email" required>
+      </div>
+
+      <div class="field">
+        <label>Where should we send your invitation card?</label>
+        <div class="checkbox-row">
+          <label><input type="checkbox" name="channel" value="instagram"> Instagram</label>
+          <label><input type="checkbox" name="channel" value="facebook"> Facebook</label>
+          <label><input type="checkbox" name="channel" value="mail"> Email</label>
+        </div>
+      </div>
+
+      <div class="submit-row">
+        <button type="submit" class="btn">Send RSVP</button>
+      </div>
+
+      <p id="rsvp-confirm" class="form-note" style="display:none; color:var(--gold);">
+        Thank you — your RSVP has been received. We look forward to seeing you on August 14th.
+      </p>
+      <p class="form-note">This is a prototype form. Live submissions will be connected before launch.</p>
+    </form>
+  </div>
+</section>
+
+<footer>
+  <span class="brand">TIDE</span>
+  <p>A Private Runway &amp; Gathering — Hamvcl, August 14th 2026</p>
+  <div class="foot-links">
+    <a href="index.html">Home</a>
+    <a href="about-tide.html">About Tide</a>
+    <a href="collection.html">Collection</a>
+    <a href="event-info.html">Event Info</a>
+    <a href="archive.html">Archive</a>
+    <a href="credits.html">Credits</a>
+  </div>
+  <p class="fine">By invitation only. © 2026 Hamvcl.</p>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>
