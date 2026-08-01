@@ -1,10 +1,8 @@
 // TIDE — shared interaction script
 
-// Messages-to-the-Tide backend config.
-// MESSAGES_API: your deployed Cloudflare Worker URL (handles new submissions).
-// MESSAGES_FEED: raw GitHub URL for the current stored messages (public, read-only).
-const MESSAGES_API = 'https://REPLACE-WITH-YOUR-WORKER.workers.dev';
-const MESSAGES_FEED = 'https://raw.githubusercontent.com/daonhathaibannha/RunwayWebsite/main/data/messages.json';
+// Messages-to-the-Tide backend — same-origin API served by the Node
+// backend alongside this static site (see backend/server.js).
+const MESSAGES_API = '/api/messages';
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -66,9 +64,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Guestbook form (messages.html) — reads/writes data/messages.json via
-  // a Cloudflare Worker backend, so messages persist and are shared across
-  // all visitors. See worker/README.md for setup.
+  // Guestbook form (messages.html) — reads/writes via the same-origin
+  // /api/messages backend, so messages persist and are shared across
+  // all visitors.
   const msgForm = document.getElementById('guestbook-form');
   const msgList = document.getElementById('guestbook-list');
 
@@ -91,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (msgList) {
     msgList.innerHTML = '<p class="form-note">Loading messages…</p>';
-    fetch(MESSAGES_FEED, { cache: 'no-store' })
+    fetch(MESSAGES_API, { cache: 'no-store' })
       .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to load')))
       .then(entries => {
         msgList.innerHTML = '';
