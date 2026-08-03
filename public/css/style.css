@@ -220,6 +220,26 @@ section{padding:7rem 0; position:relative;}
 .ph-square{aspect-ratio:1/1;}
 .ph-full{aspect-ratio:21/9;}
 
+.ph.has-img{
+  background-image:var(--ph-img);
+  background-size:cover;
+  background-position:center;
+  background-repeat:no-repeat;
+}
+.ph.has-img::after{content:none;}
+
+.ph.has-map{padding:0;}
+.ph.has-map iframe{width:100%; height:100%; border:0; filter:grayscale(.3) contrast(1.05);}
+.ph.has-map::after{content:none;}
+
+.ph-caption{
+  position:absolute; left:0; right:0; bottom:0;
+  padding:1.2rem 1rem .9rem;
+  background:linear-gradient(to top, rgba(10,10,9,.85), transparent);
+  font-size:.7rem; letter-spacing:.16em; text-transform:uppercase; color:var(--cream);
+  text-align:center;
+}
+
 /* ---------- Grids ---------- */
 .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:2.4rem; align-items:center;}
 .grid-4{display:grid; grid-template-columns:repeat(4,1fr); gap:.6rem;}
@@ -235,7 +255,7 @@ section{padding:7rem 0; position:relative;}
   display:flex; gap:1.2rem; overflow-x:auto; padding-bottom:1rem;
   scroll-snap-type:x mandatory;
 }
-.hscroll .ph{flex:0 0 340px; scroll-snap-align:start;}
+.hscroll .ph{flex:0 0 340px; aspect-ratio:4/5; scroll-snap-align:start;}
 .hscroll::-webkit-scrollbar{height:3px;}
 .hscroll::-webkit-scrollbar-thumb{background:var(--gold);}
 
@@ -258,6 +278,22 @@ section{padding:7rem 0; position:relative;}
 /* ---------- Cards ---------- */
 .card{border:1px solid var(--line); padding:2.4rem; height:100%;}
 .card h3{margin-bottom:.8rem;}
+
+/* ---------- Pull quote ---------- */
+.pull-quote{
+  font-family:var(--serif); font-style:italic; font-size:1.7rem; color:var(--gold);
+  text-align:center; max-width:620px; margin:0 auto; line-height:1.5;
+}
+
+/* ---------- Mystery / locked reveal ---------- */
+.locked-badge{
+  display:inline-flex; align-items:center; gap:.7rem;
+  padding:1rem 2rem; margin-top:1.4rem;
+  border:1px dashed var(--gold);
+  color:var(--gold);
+  font-size:.72rem; letter-spacing:.2em; text-transform:uppercase;
+}
+.locked-badge .lock-icon{font-size:1rem;}
 
 /* ---------- Forms ---------- */
 form{max-width:640px;}
