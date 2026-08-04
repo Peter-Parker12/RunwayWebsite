@@ -646,7 +646,7 @@ app.post('/api/rsvp/update', async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: existingRows } = await client.query(
-      'SELECT id, attending, sheet_row, note, photo_path, voice_path FROM rsvps WHERE public_token=$1',
+      'SELECT id, email, attending, sheet_row, note, photo_path, voice_path FROM rsvps WHERE public_token=$1',
       [token]
     );
     if (!existingRows.length) {
@@ -654,6 +654,7 @@ app.post('/api/rsvp/update', async (req, res) => {
       return res.status(404).json({ error: 'RSVP not found. Please refresh and try again.' });
     }
     const existing = existingRows[0];
+    const oldEmail = existing.email; // the sheet still has this until the row is overwritten below
 
     let arrival = null, transport = null, channels = [];
     if (existing.attending) {
@@ -693,7 +694,11 @@ app.post('/api/rsvp/update', async (req, res) => {
         existing.note || '', existing.photo_path ? 'Yes' : 'No', existing.voice_path ? 'Yes' : 'No',
         giftSummary, channels.join(', '),
       ];
-      const sheetRow = await resolveSheetRow(existing.id, updatedEmail, existing.sheet_row);
+      // Verify/find the row using the OLD email — the sheet cell still has
+      // it at this point, since updateSheetRow below is what overwrites it
+      // with updatedEmail. Checking against the new email would never
+      // match, since nothing in the sheet has it yet.
+      const sheetRow = await resolveSheetRow(existing.id, oldEmail, existing.sheet_row);
       if (sheetRow) {
         updateSheetRow(sheetRow, sheetValues);
       } else {
