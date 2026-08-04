@@ -106,6 +106,10 @@ async function ensureSchema() {
     CREATE UNIQUE INDEX IF NOT EXISTS rsvps_public_token_idx
       ON rsvps(public_token) WHERE public_token IS NOT NULL
   `);
+
+  // One RSVP per email — resubmitting with the same email updates the
+  // existing row (see POST /api/rsvp) instead of creating a duplicate.
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS rsvps_email_idx ON rsvps(email)`);
 }
 ensureSchema().catch(err => console.error('Failed to ensure schema', err));
 
@@ -180,19 +184,35 @@ app.post('/api/rsvp', (req, res, next) => {
     return res.status(400).json({ error: 'Full name and email are required' });
   }
 
-  const note = attending ? null : String(req.body?.note || '').trim().slice(0, MAX_MESSAGE_LEN);
+  let arrival = null, transport = null, note = null;
   const photoPath = req.files?.photo?.[0]?.filename || null;
   const voicePath = req.files?.voice?.[0]?.filename || null;
-  const publicToken = crypto.randomUUID();
 
-  let rsvpId;
+  if (attending) {
+    arrival = String(req.body?.arrival || '').trim().slice(0, MAX_FIELD_LEN);
+    if (!arrival) return res.status(400).json({ error: 'Arrival time is required' });
+    transport = String(req.body?.transport || '').trim().slice(0, MAX_FIELD_LEN);
+  } else {
+    note = String(req.body?.note || '').trim().slice(0, MAX_MESSAGE_LEN);
+  }
+
+  const newToken = crypto.randomUUID();
+
+  let rsvpId, publicToken, isUpdate;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO rsvps (fullname, email, attending, note, photo_path, voice_path, public_token)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-      [fullname, email, attending, note, photoPath, voicePath, publicToken]
+      `INSERT INTO rsvps (fullname, email, attending, arrival, transport, note, photo_path, voice_path, public_token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (email) DO UPDATE SET
+         fullname=EXCLUDED.fullname, attending=EXCLUDED.attending, arrival=EXCLUDED.arrival,
+         transport=EXCLUDED.transport, note=EXCLUDED.note, photo_path=EXCLUDED.photo_path,
+         voice_path=EXCLUDED.voice_path
+       RETURNING id, public_token, (xmax <> 0) AS is_update`,
+      [fullname, email, attending, arrival, transport, note, photoPath, voicePath, newToken]
     );
     rsvpId = rows[0].id;
+    publicToken = rows[0].public_token;
+    isUpdate = rows[0].is_update;
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to save RSVP' });
@@ -207,9 +227,9 @@ app.post('/api/rsvp', (req, res, next) => {
       from: process.env.SMTP_USER,
       to: process.env.RSVP_TO,
       replyTo: email,
-      subject: `TIDE RSVP — ${fullname} (${attending ? 'Attending' : 'Not attending'})`,
+      subject: `TIDE RSVP ${isUpdate ? 'Updated' : ''} — ${fullname} (${attending ? 'Attending' : 'Not attending'})`,
       text: attending
-        ? [`Name: ${fullname}`, `Email: ${email}`, `Status: Attending`].join('\n')
+        ? [`Name: ${fullname}`, `Email: ${email}`, `Status: Attending`, `Arrival: ${arrival}`, `Transport: ${transport || 'Not specified'}`].join('\n')
         : [
             `Name: ${fullname}`,
             `Email: ${email}`,
@@ -221,14 +241,23 @@ app.post('/api/rsvp', (req, res, next) => {
     }).catch(err => console.error('Failed to send RSVP notification email', err));
   }
 
-  res.status(201).json({ ok: true, id: rsvpId, token: publicToken });
+  res.status(201).json({ ok: true, id: rsvpId, token: publicToken, updated: isUpdate });
 });
 
 app.get('/api/wishlist', async (req, res) => {
   res.set('Cache-Control', 'no-store');
+  const token = String(req.query?.token || '').trim();
   try {
+    let myRsvpId = null;
+    if (token) {
+      const { rows } = await pool.query('SELECT id FROM rsvps WHERE public_token=$1', [token]);
+      myRsvpId = rows[0]?.id || null;
+    }
     const { rows } = await pool.query(
-      `SELECT id, name, (claimed_by_rsvp_id IS NOT NULL) AS claimed FROM wishlist_items ORDER BY id`
+      `SELECT id, name, (claimed_by_rsvp_id IS NOT NULL) AS claimed,
+              (claimed_by_rsvp_id = $1) AS "claimedByYou"
+       FROM wishlist_items ORDER BY id`,
+      [myRsvpId]
     );
     res.json(rows);
   } catch (err) {
@@ -282,6 +311,47 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
     await client.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json({ error: 'Failed to claim gift' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/wishlist/:id/release', async (req, res) => {
+  const itemId = Number(req.params.id);
+  const token = String(req.body?.token || '').trim();
+  if (!Number.isInteger(itemId) || !token) {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: rsvpRows } = await client.query('SELECT id FROM rsvps WHERE public_token=$1', [token]);
+    if (!rsvpRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'RSVP not found' });
+    }
+    const rsvp = rsvpRows[0];
+
+    const release = await client.query(
+      `UPDATE wishlist_items SET claimed_by_rsvp_id=NULL, claimed_at=NULL
+       WHERE id=$1 AND claimed_by_rsvp_id=$2 RETURNING id, name`,
+      [itemId, rsvp.id]
+    );
+    if (release.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'You have not claimed this gift.' });
+    }
+
+    await client.query('UPDATE rsvps SET gift_type=NULL, wishlist_item_id=NULL WHERE id=$1 AND wishlist_item_id=$2', [rsvp.id, itemId]);
+    await client.query('COMMIT');
+
+    res.json({ id: release.rows[0].id, name: release.rows[0].name });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: 'Failed to release gift' });
   } finally {
     client.release();
   }

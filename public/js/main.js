@@ -47,14 +47,17 @@ document.addEventListener('DOMContentLoaded', () => {
   revealEls.forEach(el => io.observe(el));
 
   // RSVP form (invitation-box.html) — name+email, then an attending/not
-  // branch. "I'll be there" submits immediately; "I can't make it" reveals
-  // a note/voice/photo panel with its own send button. Either path reveals
-  // a shared post-submission gift panel (contribute or claim a wishlist item).
+  // branch. Both branches reveal a panel with their own "Send RSVP" button:
+  // attending asks for arrival time + transportation, not-attending offers
+  // a note/voice/photo. Resubmitting with the same email updates the guest's
+  // existing RSVP instead of creating a duplicate. Either path reveals a
+  // shared post-submission gift panel (contribute or claim a wishlist item).
   const rsvpForm = document.getElementById('rsvp-form');
   if (rsvpForm) {
     let attending = null;
     const voiceApi = setUpVoiceRecorder();
 
+    const panelAttending = document.getElementById('rsvp-panel-attending');
     const panelNotAttending = document.getElementById('rsvp-panel-not-attending');
     const choiceAttending = document.getElementById('choice-attending');
     const choiceNotAttending = document.getElementById('choice-not-attending');
@@ -63,9 +66,9 @@ document.addEventListener('DOMContentLoaded', () => {
       attending = true;
       choiceAttending.classList.add('active');
       choiceNotAttending.classList.remove('active');
+      panelAttending.hidden = false;
       panelNotAttending.hidden = true;
       voiceApi.stopVoiceCleanup();
-      submitRsvp();
     });
 
     choiceNotAttending.addEventListener('click', () => {
@@ -73,8 +76,10 @@ document.addEventListener('DOMContentLoaded', () => {
       choiceNotAttending.classList.add('active');
       choiceAttending.classList.remove('active');
       panelNotAttending.hidden = false;
+      panelAttending.hidden = true;
     });
 
+    document.getElementById('rsvp-send-attending').addEventListener('click', submitRsvp);
     document.getElementById('rsvp-send-note').addEventListener('click', submitRsvp);
 
     async function submitRsvp() {
@@ -89,7 +94,15 @@ document.addEventListener('DOMContentLoaded', () => {
       fd.append('fullname', fullname);
       fd.append('email', email);
       fd.append('attending', String(attending));
-      if (!attending) {
+      if (attending) {
+        const arrival = document.getElementById('rsvp-time').value.trim();
+        if (!arrival) {
+          alert('Please enter your arrival time.');
+          return;
+        }
+        fd.append('arrival', arrival);
+        fd.append('transport', document.getElementById('rsvp-transport').value.trim());
+      } else {
         fd.append('note', document.getElementById('rsvp-note').value.trim());
         const photoInput = document.getElementById('rsvp-photo');
         if (photoInput.files[0]) fd.append('photo', photoInput.files[0]);
@@ -97,22 +110,25 @@ document.addEventListener('DOMContentLoaded', () => {
         if (voiceBlob) fd.append('voice', voiceBlob, `voice.${voiceBlob.type.includes('mp4') ? 'm4a' : 'webm'}`);
       }
 
-      const trigger = attending ? choiceAttending : document.getElementById('rsvp-send-note');
+      const trigger = document.getElementById(attending ? 'rsvp-send-attending' : 'rsvp-send-note');
       const originalLabel = trigger.textContent;
       trigger.disabled = true;
-      if (!attending) trigger.textContent = 'Sending…';
+      trigger.textContent = 'Sending…';
 
       try {
         const res = await fetch('/api/rsvp', { method: 'POST', body: fd });
         if (!res.ok) throw new Error('Request failed');
         const data = await res.json();
 
+        document.getElementById('rsvp-confirm').textContent = data.updated
+          ? 'Thank you — your RSVP has been updated.'
+          : 'Thank you — your RSVP has been received.';
         document.getElementById('rsvp-confirm').style.display = 'block';
         document.getElementById('rsvp-panel-gift').hidden = false;
         wireGiftPanel(data.token);
         choiceAttending.disabled = true;
         choiceNotAttending.disabled = true;
-        if (!attending) document.getElementById('rsvp-send-note').closest('.submit-row').style.display = 'none';
+        trigger.closest('.submit-row').style.display = 'none';
       } catch (err) {
         alert('Sorry, your RSVP could not be sent. Please try again.');
         trigger.disabled = false;
@@ -139,18 +155,21 @@ function wireGiftPanel(token) {
 async function renderWishlist(token) {
   const list = document.getElementById('wishlist-list');
   list.innerHTML = 'Loading…';
-  const items = await (await fetch('/api/wishlist')).json();
+  const items = await (await fetch(`/api/wishlist?token=${encodeURIComponent(token)}`)).json();
   list.innerHTML = '';
   items.forEach(item => {
     const row = document.createElement('div');
     row.className = 'wishlist-item' + (item.claimed ? ' claimed' : '');
+    const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : 'Claim this gift');
+    const disabled = item.claimed && !item.claimedByYou;
     row.innerHTML = `<span class="name">${item.name}</span>` +
-      `<button type="button" class="btn"${item.claimed ? ' disabled' : ''}>${item.claimed ? 'Claimed' : 'Claim this gift'}</button>`;
-    if (!item.claimed) {
+      `<button type="button" class="btn"${disabled ? ' disabled' : ''}>${label}</button>`;
+    if (!disabled) {
       const btn = row.querySelector('button');
+      const isUnclaim = item.claimedByYou;
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        const res = await fetch(`/api/wishlist/${item.id}/claim`, {
+        const res = await fetch(`/api/wishlist/${item.id}/${isUnclaim ? 'release' : 'claim'}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
@@ -159,11 +178,10 @@ async function renderWishlist(token) {
           alert('Sorry — someone just claimed this. Please pick another.');
           await renderWishlist(token);
         } else if (res.ok) {
-          alert('Thank you — you\'ve claimed this gift!');
-          row.classList.add('claimed');
-          btn.textContent = 'Claimed';
+          alert(isUnclaim ? 'You\'ve released this gift.' : 'Thank you — you\'ve claimed this gift!');
+          await renderWishlist(token);
         } else {
-          alert('Could not claim this gift. Please try again.');
+          alert('Something went wrong. Please try again.');
           btn.disabled = false;
         }
       });
