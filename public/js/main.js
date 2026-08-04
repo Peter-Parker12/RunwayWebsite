@@ -145,10 +145,10 @@ async function renderWishlist(token) {
     const row = document.createElement('div');
     row.className = 'wishlist-item' + (item.claimed ? ' claimed' : '');
     row.innerHTML = `<span class="name">${item.name}</span>` +
-      (item.claimed ? '<span class="form-note">Claimed</span>' : '<button type="button" class="btn">Claim this gift</button>');
+      `<button type="button" class="btn"${item.claimed ? ' disabled' : ''}>${item.claimed ? 'Claimed' : 'Claim this gift'}</button>`;
     if (!item.claimed) {
-      row.querySelector('button').addEventListener('click', async () => {
-        const btn = row.querySelector('button');
+      const btn = row.querySelector('button');
+      btn.addEventListener('click', async () => {
         btn.disabled = true;
         const res = await fetch(`/api/wishlist/${item.id}/claim`, {
           method: 'POST',
@@ -159,8 +159,9 @@ async function renderWishlist(token) {
           alert('Sorry — someone just claimed this. Please pick another.');
           await renderWishlist(token);
         } else if (res.ok) {
+          alert('Thank you — you\'ve claimed this gift!');
           row.classList.add('claimed');
-          row.innerHTML = `<span class="name">${item.name}</span><span class="form-note">Claimed by you — thank you!</span>`;
+          btn.textContent = 'Claimed';
         } else {
           alert('Could not claim this gift. Please try again.');
           btn.disabled = false;

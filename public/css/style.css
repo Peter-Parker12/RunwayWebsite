@@ -338,12 +338,25 @@ button.btn{font-family:var(--sans); background:none; cursor:pointer;}
 .voice-recorder{display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:.6rem;}
 .voice-timer{font-size:.8rem; color:var(--gold); letter-spacing:.08em;}
 
+.wishlist-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:1.2rem;
+}
+@media (max-width:820px){.wishlist-grid{grid-template-columns:1fr;}}
+
 .wishlist-item{
-  border:1px solid var(--line); padding:1.4rem; display:flex; justify-content:space-between;
-  align-items:center; gap:1rem;
+  border:1px solid var(--line); padding:1.4rem;
+  display:flex; flex-direction:column; justify-content:space-between; gap:1rem;
+  height:168px;
 }
 .wishlist-item.claimed{opacity:.45;}
-.wishlist-item .name{font-family:var(--serif); font-size:1.05rem;}
+.wishlist-item .name{
+  font-family:var(--serif); font-size:1.05rem; line-height:1.35;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.wishlist-item .btn{width:100%; text-align:center; padding:1rem 1.2rem;}
+.wishlist-item .btn:disabled{opacity:1; cursor:default; pointer-events:none;}
+.wishlist-item .btn:disabled::before{display:none;}
 
 /* ---------- Archive filter ---------- */
 .filter-row{display:flex; gap:.6rem; flex-wrap:wrap; margin-bottom:2.6rem;}
