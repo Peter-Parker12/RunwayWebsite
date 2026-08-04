@@ -369,6 +369,17 @@ button.btn{font-family:var(--sans); background:none; cursor:pointer;}
   z-index:20; pointer-events:none;
 }
 
+/* ---------- Toast ---------- */
+.toast{
+  position:fixed; left:50%; bottom:2rem; transform:translate(-50%, 16px);
+  max-width:90vw; width:420px;
+  background:var(--off-black); border:1px solid var(--gold); color:var(--cream);
+  padding:1rem 1.4rem; font-size:.82rem; line-height:1.45; text-align:center;
+  opacity:0; pointer-events:none; transition:opacity .3s var(--ease), transform .3s var(--ease);
+  z-index:200;
+}
+.toast.visible{opacity:1; transform:translate(-50%, 0);}
+
 /* ---------- Archive filter ---------- */
 .filter-row{display:flex; gap:.6rem; flex-wrap:wrap; margin-bottom:2.6rem;}
 .filter-pill{

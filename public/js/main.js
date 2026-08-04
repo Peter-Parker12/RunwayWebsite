@@ -173,47 +173,69 @@ function wireGiftPanel(token) {
   });
 }
 
+// Small non-blocking message, used instead of alert() so claiming/unclaiming
+// a gift never feels like it interrupted or reloaded the page.
+function showToast(message) {
+  let toast = document.getElementById('wishlist-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'wishlist-toast';
+    toast.className = 'toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add('visible');
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => toast.classList.remove('visible'), 4500);
+}
+
+// Builds one wishlist row. Used both for the initial full render and to swap
+// a single row in place after a successful claim/unclaim, without rebuilding
+// (and flashing) the whole list.
+function buildWishlistRow(item, token) {
+  const row = document.createElement('div');
+  const disabled = item.claimed && !item.claimedByYou;
+  row.className = 'wishlist-item' + (disabled ? ' claimed' : '');
+  const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : 'Claim this gift');
+  const tooltip = item.claimedByYou
+    ? ' data-tooltip="You can also change your choice anytime via the link in your confirmation email."'
+    : '';
+  row.innerHTML = `<span class="name">${item.name}</span>` +
+    `<button type="button" class="btn"${disabled ? ' disabled' : ''}${tooltip}>${label}</button>`;
+
+  if (!disabled) {
+    const btn = row.querySelector('button');
+    const isUnclaim = item.claimedByYou;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const res = await fetch(`/api/wishlist/${item.id}/${isUnclaim ? 'release' : 'claim'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      if (res.status === 409) {
+        showToast('Sorry — someone just claimed this. Refreshing the list…');
+        await renderWishlist(token);
+      } else if (res.ok) {
+        showToast(isUnclaim
+          ? "You've released this gift."
+          : "Claimed! A confirmation email is on its way — you can change your choice via the link inside it.");
+        row.replaceWith(buildWishlistRow({ ...item, claimed: !isUnclaim, claimedByYou: !isUnclaim }, token));
+      } else {
+        showToast('Something went wrong. Please try again.');
+        btn.disabled = false;
+      }
+    });
+  }
+  return row;
+}
+
 async function renderWishlist(token) {
   const list = document.getElementById('wishlist-list');
   list.innerHTML = 'Loading…';
   const items = await (await fetch(`/api/wishlist?token=${encodeURIComponent(token)}`)).json();
   list.innerHTML = '';
-  items.forEach(item => {
-    const row = document.createElement('div');
-    const disabled = item.claimed && !item.claimedByYou;
-    row.className = 'wishlist-item' + (disabled ? ' claimed' : '');
-    const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : 'Claim this gift');
-    const tooltip = item.claimedByYou
-      ? ' data-tooltip="You can also change your choice anytime via the link in your confirmation email."'
-      : '';
-    row.innerHTML = `<span class="name">${item.name}</span>` +
-      `<button type="button" class="btn"${disabled ? ' disabled' : ''}${tooltip}>${label}</button>`;
-    if (!disabled) {
-      const btn = row.querySelector('button');
-      const isUnclaim = item.claimedByYou;
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        const res = await fetch(`/api/wishlist/${item.id}/${isUnclaim ? 'release' : 'claim'}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        });
-        if (res.status === 409) {
-          alert('Sorry — someone just claimed this. Please pick another.');
-          await renderWishlist(token);
-        } else if (res.ok) {
-          alert(isUnclaim
-            ? 'You\'ve released this gift.'
-            : 'Thank you — you\'ve claimed this gift! A confirmation email is on its way, and you can change your choice anytime via the link inside it.');
-          await renderWishlist(token);
-        } else {
-          alert('Something went wrong. Please try again.');
-          btn.disabled = false;
-        }
-      });
-    }
-    list.appendChild(row);
-  });
+  items.forEach(item => list.appendChild(buildWishlistRow(item, token)));
 }
 
 // Wires the 30-second voice recorder in the "I can't make it" panel.
