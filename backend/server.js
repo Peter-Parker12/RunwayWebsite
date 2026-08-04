@@ -464,10 +464,10 @@ app.post('/api/rsvp', (req, res, next) => {
   }
 
   const giftChoice = String(req.body?.giftChoice || '').trim(); // 'contribute' | 'wishlist' | ''
-  // A guest can select any number of wishlist items — dedupe, cap generously
-  // (the whole list is only ~22 items) so this can't be abused as a flood vector.
+  // One wishlist gift per guest — only the first valid selection is used
+  // even if the client sends more.
   const wishlistItemIds = giftChoice === 'wishlist'
-    ? [...new Set([].concat(req.body?.wishlistItemId || []).map(Number).filter(Number.isInteger))].slice(0, 30)
+    ? [...new Set([].concat(req.body?.wishlistItemId || []).map(Number).filter(Number.isInteger))].slice(0, 1)
     : [];
 
   const newToken = crypto.randomUUID();
@@ -771,6 +771,15 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
     }
     const rsvp = rsvpRows[0];
 
+    // One wishlist gift per guest — must release their current one first.
+    const { rows: heldRows } = await client.query(
+      'SELECT id FROM wishlist_items WHERE claimed_by_rsvp_id=$1', [rsvp.id]
+    );
+    if (heldRows.length && heldRows[0].id !== itemId) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'You can only choose one gift from the wishlist — release your current choice first to pick a different one.' });
+    }
+
     const claim = await client.query(
       `UPDATE wishlist_items SET claimed_by_rsvp_id=$1, claimed_at=now()
        WHERE id=$2 AND claimed_by_rsvp_id IS NULL RETURNING id, name`,
@@ -785,9 +794,7 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
     await client.query('COMMIT');
 
     // Update this guest's existing sheet row rather than appending a new
-    // line every time they change their gift choice — the cell shows their
-    // full current gift set, not just the item claimed in this call, since
-    // a guest can hold several at once.
+    // line every time they change their gift choice.
     const { summary: giftSummary } = await computeGiftSummary(rsvp.id);
     const sheetRow = await resolveSheetRow(rsvp.id, rsvp.email, rsvp.sheet_row);
     if (sheetRow) {

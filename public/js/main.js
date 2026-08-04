@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (rsvpForm) {
     let attending = null;
     let selectedGiftChoice = ''; // 'contribute' | 'wishlist' | ''
-    let selectedWishlistItemIds = new Set(); // a guest can pick more than one
+    let selectedWishlistItemId = null; // one gift per guest
     const voiceApi = setUpVoiceRecorder();
 
     const identityFields = document.getElementById('rsvp-identity-fields');
@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     choiceContribute.addEventListener('click', () => {
       selectedGiftChoice = selectedGiftChoice === 'contribute' ? '' : 'contribute';
-      selectedWishlistItemIds.clear();
+      selectedWishlistItemId = null;
       choiceContribute.classList.toggle('active', selectedGiftChoice === 'contribute');
       choiceWishlist.classList.remove('active');
       giftPanelContribute.hidden = selectedGiftChoice !== 'contribute';
@@ -123,15 +123,14 @@ document.addEventListener('DOMContentLoaded', () => {
       list.innerHTML = '';
       items.forEach(item => {
         const row = document.createElement('div');
-        const isSelected = selectedWishlistItemIds.has(item.id);
+        const isSelected = selectedWishlistItemId === item.id;
         row.className = 'wishlist-item' + (item.claimed ? ' claimed' : '') + (isSelected ? ' selected' : '');
         const label = item.claimed ? 'Taken' : (isSelected ? 'Selected' : 'Select this gift');
         row.innerHTML = wishlistItemHeaderHtml(item) +
           `<button type="button" class="btn"${item.claimed ? ' disabled' : ''}>${label}</button>`;
         if (!item.claimed) {
           row.querySelector('button').addEventListener('click', () => {
-            if (isSelected) selectedWishlistItemIds.delete(item.id);
-            else selectedWishlistItemIds.add(item.id);
+            selectedWishlistItemId = isSelected ? null : item.id;
             renderWishlistSelect();
           });
         }
@@ -197,9 +196,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (selectedGiftChoice === 'contribute') {
         fd.append('giftChoice', 'contribute');
-      } else if (selectedGiftChoice === 'wishlist' && selectedWishlistItemIds.size) {
+      } else if (selectedGiftChoice === 'wishlist' && selectedWishlistItemId) {
         fd.append('giftChoice', 'wishlist');
-        selectedWishlistItemIds.forEach(id => fd.append('wishlistItemId', String(id)));
+        fd.append('wishlistItemId', String(selectedWishlistItemId));
       }
 
       const submitBtn = document.getElementById('rsvp-submit');
@@ -404,17 +403,20 @@ function wishlistItemHeaderHtml(item) {
   return `<div class="wishlist-item-header">${nameHtml}${categoryHtml}</div>`;
 }
 
-// Builds one wishlist row. Used both for the initial full render and to swap
-// a single row in place after a successful claim/unclaim, without rebuilding
-// (and flashing) the whole list.
-function buildWishlistRow(item, token) {
+// Builds one wishlist row. One gift per guest: if they already hold a
+// different item, every other row is locked until they release it — so
+// hasClaimedItem must reflect the full list's state, not just this item.
+function buildWishlistRow(item, token, hasClaimedItem) {
   const row = document.createElement('div');
-  const disabled = item.claimed && !item.claimedByYou;
+  const lockedByOtherClaim = hasClaimedItem && !item.claimedByYou;
+  const disabled = (item.claimed && !item.claimedByYou) || lockedByOtherClaim;
   row.className = 'wishlist-item' + (disabled ? ' claimed' : '');
   if (item.claimedByYou) {
     row.setAttribute('data-tooltip', 'You can also change your choice anytime via the link in your confirmation email.');
+  } else if (lockedByOtherClaim) {
+    row.setAttribute('data-tooltip', 'You can only choose one gift — release your current choice first to pick a different one.');
   }
-  const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : 'Claim this gift');
+  const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : (lockedByOtherClaim ? 'Choose one gift only' : 'Claim this gift'));
   row.innerHTML = wishlistItemHeaderHtml(item) +
     `<button type="button" class="btn"${disabled ? ' disabled' : ''}>${label}</button>`;
 
@@ -428,14 +430,15 @@ function buildWishlistRow(item, token) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.status === 409) {
-        showToast('Sorry — someone just claimed this. Refreshing the list…');
+        showToast(data.error || 'Sorry — someone just claimed this. Refreshing the list…');
         await renderWishlist(token);
       } else if (res.ok) {
         showToast(isUnclaim
           ? "You've released this gift."
           : "Claimed! A confirmation email is on its way — you can change your choice via the link inside it.");
-        row.replaceWith(buildWishlistRow({ ...item, claimed: !isUnclaim, claimedByYou: !isUnclaim }, token));
+        await renderWishlist(token);
       } else {
         showToast('Something went wrong. Please try again.');
         btn.disabled = false;
@@ -450,7 +453,8 @@ async function renderWishlist(token) {
   list.innerHTML = 'Loading…';
   const items = await (await fetch(`/api/wishlist?token=${encodeURIComponent(token)}`)).json();
   list.innerHTML = '';
-  items.forEach(item => list.appendChild(buildWishlistRow(item, token)));
+  const hasClaimedItem = items.some(i => i.claimedByYou);
+  items.forEach(item => list.appendChild(buildWishlistRow(item, token, hasClaimedItem)));
 }
 
 // Wires the 30-second voice recorder in the "I can't make it" panel.
