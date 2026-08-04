@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Invitation Box | TIDE — Hamvcl</title>
-<link rel="stylesheet" href="css/style.css?v=2">
+<link rel="stylesheet" href="css/style.css?v=3">
 <link rel="shortcut icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -172,6 +172,48 @@
         </div>
       </div>
 
+      <div id="rsvp-summary" class="card" hidden style="margin-bottom:2rem;">
+        <p class="form-note" style="margin-top:0;">Your RSVP</p>
+        <p style="font-family:var(--serif); font-size:1.2rem;" id="rsvp-summary-name"></p>
+        <p id="rsvp-summary-details" style="color:rgba(244,240,232,.7); font-size:.9rem; margin-top:.4rem;"></p>
+        <button type="button" class="btn" id="rsvp-edit-btn" style="margin-top:1.2rem;">Edit RSVP</button>
+      </div>
+
+      <div id="rsvp-edit-panel" class="rsvp-panel" hidden>
+        <p class="form-note" style="margin-top:0;">Update your details below.</p>
+        <div class="field">
+          <label for="rsvp-edit-fullname">Full Name (Nickname)</label>
+          <input type="text" id="rsvp-edit-fullname">
+        </div>
+        <div class="field">
+          <label for="rsvp-edit-email">Email</label>
+          <input type="email" id="rsvp-edit-email">
+        </div>
+        <div id="rsvp-edit-attending-fields" hidden>
+          <div class="field">
+            <label for="rsvp-edit-time">Arrival Time on August 14th</label>
+            <input type="text" id="rsvp-edit-time" placeholder="e.g. 18:26">
+          </div>
+          <div class="field">
+            <label for="rsvp-edit-transport">Mode of Transportation</label>
+            <input type="text" id="rsvp-edit-transport" placeholder="e.g. Car, Taxi, Motorbike">
+          </div>
+          <div class="field">
+            <label>Where should we send your e-invitation?</label>
+            <div class="checkbox-row">
+              <label><input type="checkbox" name="edit-channel" value="facebook"> Facebook</label>
+              <label><input type="checkbox" name="edit-channel" value="email"> Email</label>
+              <label><input type="checkbox" name="edit-channel" value="instagram"> Instagram</label>
+            </div>
+          </div>
+        </div>
+        <p id="rsvp-edit-error" class="form-note" style="display:none; color:#e08080;"></p>
+        <div class="submit-row">
+          <button type="button" class="btn" id="rsvp-edit-save">Save Changes</button>
+          <button type="button" class="btn" id="rsvp-edit-cancel" style="margin-left:.8rem;">Cancel</button>
+        </div>
+      </div>
+
       <div id="rsvp-gift-section" class="field">
         <label>Would you like to give a gift? (optional)</label>
         <div class="choice-row">
@@ -217,6 +259,6 @@
   <p class="fine">By invitation only. © 2026 Hamvcl.</p>
 </footer>
 
-<script src="js/main.js?v=2"></script>
+<script src="js/main.js?v=3"></script>
 </body>
 </html>

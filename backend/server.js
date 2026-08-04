@@ -223,36 +223,77 @@ async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS wishlist_items (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
+      category TEXT,
+      brand TEXT,
+      referral_link TEXT,
       claimed_by_rsvp_id INTEGER REFERENCES rsvps(id),
       claimed_at TIMESTAMPTZ
     )
   `);
+  await pool.query(`ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS category TEXT`);
+  await pool.query(`ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS brand TEXT`);
+  await pool.query(`ALTER TABLE wishlist_items ADD COLUMN IF NOT EXISTS referral_link TEXT`);
+
+  // Renames items already seeded under an older name/wording to the current
+  // wording below — done as UPDATEs (not delete+reinsert) so id and any
+  // existing claimed_by_rsvp_id survive the rename.
   await pool.query(`
-    INSERT INTO wishlist_items (name) VALUES
-      ('Ổ chuyển đổi cho MacBook'),
-      ('Ổ cắm điện Deli 4 ổ, dây 3m'),
-      ('Bộ sạc và pin AA Eneloop Panasonic'),
-      ('Sạc dự phòng Baseus 22.5W 20000mAh'),
-      ('Headphone'),
-      ('Khóa vali có số (để khóa vali đi tàu EU)'),
-      ('AirTag (x2)'),
-      ('Vòi xịt cầm tay'),
-      ('Xịt mạt bụi'),
-      ('Paw Paw Lucas dưỡng môi'),
-      ('Vitamin C sủi'),
-      ('Thước kẻ be bé'),
-      ('Ô (dù)'),
-      ('Bùa bình an dán vali'),
-      ('Bông tẩy trang'),
-      ('Sữa rửa mặt Roundlab'),
-      ('Thuốc nhỏ mắt Rothko'),
-      ('Lọ cồn xịt (khử trùng)'),
-      ('Bàn là mini'),
-      ('Gia vị Việt Nam'),
-      ('Tương ớt Chinsu (size nhỏ)'),
-      ('Tương ớt Chinsu (size nhỡ)')
-    ON CONFLICT (name) DO NOTHING
+    UPDATE wishlist_items SET name = v.new_name FROM (VALUES
+      ('Ổ chuyển đổi cho MacBook', 'Ổ chuyển đổi cho macbook'),
+      ('Ổ cắm điện Deli 4 ổ, dây 3m', 'Ổ cắm điện Deli 4 ổ 4 nguồn dây 3m'),
+      ('Bộ sạc và pin AA Eneloop Panasonic', 'Bộ sạc và pin AA eneloop panasonic'),
+      ('Sạc dự phòng Baseus 22.5W 20000mAh', 'sạc dự phòng - baseus, 22.5W, 20000mAh'),
+      ('Headphone', 'headphone'),
+      ('Khóa vali có số (để khóa vali đi tàu EU)', 'khóa dây có số (để khóa vali nếu đi tàu EU)'),
+      ('Vòi xịt cầm tay', 'vòi xịt cầm tay'),
+      ('Xịt mạt bụi', 'xịt mạt bụi'),
+      ('Paw Paw Lucas dưỡng môi', 'paw paw lucas dưỡng môi'),
+      ('Vitamin C sủi', 'C sủi'),
+      ('Ô (dù)', 'ô (dù)'),
+      ('Bông tẩy trang', 'bông tẩy trang'),
+      ('Sữa rửa mặt Roundlab', 'sữa rửa mặt roundlab'),
+      ('Thuốc nhỏ mắt Rothko', 'thuốc nhỏ mắt rothko'),
+      ('Bàn là mini', 'bàn là mini'),
+      ('Gia vị Việt Nam', 'Gia vị việt nam'),
+      ('Tương ớt Chinsu (size nhỏ)', 'tương ớt chinsu size nhỏ +1 (nhỡ)')
+    ) AS v(old_name, new_name)
+    WHERE wishlist_items.name = v.old_name
   `);
+
+  // Upsert current name/category/brand/referral_link — matches by name (after
+  // the rename pass above), so this only ever updates existing rows in place
+  // or inserts genuinely new items; it never touches claimed_by_rsvp_id.
+  await pool.query(`
+    INSERT INTO wishlist_items (name, category, brand, referral_link) VALUES
+      ('Ổ chuyển đổi cho macbook', 'e-device', NULL, 'https://shopee.vn/product/325696535/10389130208?d_id=7d992&uls_trackid=569unu0f00hu&utm_content=2KJLrQm9NF2owUgL4AEM3cPueQQ7'),
+      ('Ổ cắm điện Deli 4 ổ 4 nguồn dây 3m', 'e-device', 'Deli', 'https://shopee.vn/product/347048079/23534075464?d_id=7d992&uls_trackid=569unt3601sa&utm_content=2KJLrQm9NFBrngVdnJcBJc7a7iUX'),
+      ('Bộ sạc và pin AA eneloop panasonic', 'e-device', NULL, 'https://shopee.vn/product/1694770608/50954898414?d_id=7d992&uls_trackid=569unuok02ma&utm_content=2KJLrQm9NEwXvXWu28QMCd9jU6c7'),
+      ('sạc dự phòng - baseus, 22.5W, 20000mAh', 'e-device', NULL, NULL),
+      ('headphone', 'e-device', NULL, NULL),
+      ('khóa dây có số (để khóa vali nếu đi tàu EU)', 'others', 'rockbros', 'https://shopee.vn/product/92745262/23280108920?d_id=7d992&uls_trackid=569uno0100s6&utm_content=2KJLrQm9NFEh3J9EhWnDSkSCvsEo'),
+      ('vòi xịt cầm tay', 'hygiene stuffs', NULL, 'https://shopee.vn/product/820960773/28918199869?d_id=ef165&fbclid=IwY2xjawTe7YthZmRrCXNnTXFFYlB6LWV4dG4DYWVtAjExAHNydGMGYXBwX2lkDzQzNzYyNjMxNjk3Mzc4OAABHuEggzHvt-t2F02VYyu_BphjECxUn0QMxg8dCp8RvaWa11-kBLALMsr5n_hY_aem_L05keDd3NUHwZ5JXcvVpig&rModelId=252071634857&uls_trackid=56a8r3pm00t9&utm_content=25AhWgmMSZzoPDxa5WK3dqkq725d'),
+      ('xịt mạt bụi', 'hygiene stuffs', NULL, 'https://shopee.vn/product/710340332/19965884184?d_id=7d992&uls_trackid=569unrpb02s6&utm_content=2KJLrQm9NFDinxrSeaxRt6fEL6zT'),
+      ('paw paw lucas dưỡng môi', 'cosmetic, kinke', NULL, NULL),
+      ('C sủi', 'medicine', NULL, NULL),
+      ('Thước kẻ be bé', 'medicine', NULL, NULL),
+      ('ô (dù)', 'Clothes', NULL, NULL),
+      ('Bùa bình an dán vali', 'food&kitchen supp', NULL, NULL),
+      ('bông tẩy trang', 'cosmetic, kinke', NULL, NULL),
+      ('sữa rửa mặt roundlab', 'cosmetic, kinke', NULL, NULL),
+      ('thuốc nhỏ mắt rothko', 'medicine', NULL, NULL),
+      ('lọ cồn xịt (khử trùng)', 'hygiene stuffs', NULL, NULL),
+      ('bàn là mini', 'e-device', NULL, NULL),
+      ('Gia vị việt nam', 'food&kitchen supp', NULL, NULL),
+      ('tương ớt chinsu size nhỏ +1 (nhỡ)', 'food&kitchen supp', NULL, NULL),
+      ('Máy cắt hình con tem', 'gifts', NULL, 'https://shopee.vn/product/1145688/48608718340?d_id=7d992&uls_trackid=56a8r2iq00i7&utm_content=2KJLrQm9SFU8eDBJn7SxN285sDYT')
+    ON CONFLICT (name) DO UPDATE SET
+      category = EXCLUDED.category,
+      brand = EXCLUDED.brand,
+      referral_link = EXCLUDED.referral_link
+  `);
+
+  // Dropped from the wishlist — no longer offered.
+  await pool.query(`DELETE FROM wishlist_items WHERE name = 'AirTag (x2)'`);
 
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS attending BOOLEAN NOT NULL DEFAULT true`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS note TEXT`);
@@ -553,6 +594,114 @@ app.post('/api/rsvp', (req, res, next) => {
   res.status(201).json({ ok: true, id: rsvpId, token: publicToken, updated: isUpdate, giftNames: claimedNames, giftConflicts: conflictNames });
 });
 
+// Lets a returning guest (identified by their public_token, the same one
+// used to manage their gift) fetch their current RSVP details to populate
+// an edit form — never exposes anything by email/id lookup, token only.
+app.get('/api/rsvp/me', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const token = String(req.query?.token || '').trim();
+  if (!token) return res.status(400).json({ error: 'Missing token' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT fullname, email, attending, arrival, transport, channels FROM rsvps WHERE public_token=$1`,
+      [token]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'RSVP not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load RSVP' });
+  }
+});
+
+// Dedicated edit path for a returning guest changing their name, email,
+// arrival time, transport, or invitation channels — deliberately separate
+// from POST /api/rsvp (which is keyed by email via ON CONFLICT and also
+// juggles file uploads + gift claiming) so an email change here can't
+// orphan the guest's token, and editing these fields never touches their
+// note/photo/voice/gift state.
+app.post('/api/rsvp/update', async (req, res) => {
+  const token = String(req.body?.token || '').trim();
+  const fullname = String(req.body?.fullname || '').trim().slice(0, MAX_FIELD_LEN);
+  const email = String(req.body?.email || '').trim().slice(0, MAX_FIELD_LEN);
+  if (!token || !fullname || !email) {
+    return res.status(400).json({ error: 'Name and email are required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: existingRows } = await client.query(
+      'SELECT id, attending, sheet_row, note, photo_path, voice_path FROM rsvps WHERE public_token=$1',
+      [token]
+    );
+    if (!existingRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'RSVP not found. Please refresh and try again.' });
+    }
+    const existing = existingRows[0];
+
+    let arrival = null, transport = null, channels = [];
+    if (existing.attending) {
+      arrival = String(req.body?.arrival || '').trim().slice(0, MAX_FIELD_LEN);
+      if (!arrival) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Arrival time is required' });
+      }
+      transport = String(req.body?.transport || '').trim().slice(0, MAX_FIELD_LEN);
+      channels = [].concat(req.body?.channels || [])
+        .map(c => String(c).trim().slice(0, 40)).filter(Boolean).slice(0, 10);
+    }
+
+    let updatedEmail;
+    try {
+      const { rows } = await client.query(
+        `UPDATE rsvps SET fullname=$1, email=$2, arrival=$3, transport=$4, channels=$5
+         WHERE id=$6 RETURNING email`,
+        [fullname, email, arrival, transport, channels, existing.id]
+      );
+      updatedEmail = rows[0].email;
+    } catch (err) {
+      if (err.code === '23505') {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'That email is already used by another RSVP.' });
+      }
+      throw err;
+    }
+
+    await client.query('COMMIT');
+
+    (async () => {
+      const { summary: giftSummary } = await computeGiftSummary(existing.id);
+      const sheetValues = [
+        new Date().toISOString(), 'RSVP Updated', fullname, updatedEmail,
+        existing.attending ? 'Yes' : 'No', arrival || '', transport || '',
+        existing.note || '', existing.photo_path ? 'Yes' : 'No', existing.voice_path ? 'Yes' : 'No',
+        giftSummary, channels.join(', '),
+      ];
+      const sheetRow = await resolveSheetRow(existing.id, updatedEmail, existing.sheet_row);
+      if (sheetRow) {
+        updateSheetRow(sheetRow, sheetValues);
+      } else {
+        const newRow = await appendSheetRow(sheetValues);
+        if (newRow) {
+          pool.query('UPDATE rsvps SET sheet_row=$1 WHERE id=$2', [newRow, existing.id])
+            .catch(err => console.error('Failed to persist sheet_row', err.message));
+        }
+      }
+    })().catch(err => console.error('Failed to sync Google Sheet row', err.message));
+
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update RSVP' });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/api/wishlist', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const token = String(req.query?.token || '').trim();
@@ -563,7 +712,8 @@ app.get('/api/wishlist', async (req, res) => {
       myRsvpId = rows[0]?.id || null;
     }
     const { rows } = await pool.query(
-      `SELECT id, name, (claimed_by_rsvp_id IS NOT NULL) AS claimed,
+      `SELECT id, name, category, referral_link AS "referralLink",
+              (claimed_by_rsvp_id IS NOT NULL) AS claimed,
               (claimed_by_rsvp_id = $1) AS "claimedByYou"
        FROM wishlist_items ORDER BY id`,
       [myRsvpId]

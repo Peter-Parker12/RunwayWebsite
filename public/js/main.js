@@ -126,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const isSelected = selectedWishlistItemIds.has(item.id);
         row.className = 'wishlist-item' + (item.claimed ? ' claimed' : '') + (isSelected ? ' selected' : '');
         const label = item.claimed ? 'Taken' : (isSelected ? 'Selected' : 'Select this gift');
-        row.innerHTML = `<span class="name">${item.name}</span>` +
+        row.innerHTML = wishlistItemHeaderHtml(item) +
           `<button type="button" class="btn"${item.claimed ? ' disabled' : ''}>${label}</button>`;
         if (!item.claimed) {
           row.querySelector('button').addEventListener('click', () => {
@@ -141,7 +141,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Collapses the form down to just the gift panel — used right after a
     // successful submit, and for a returning guest who never needs to fill
-    // out the form again just to manage their gift.
+    // out the form again just to manage their gift. Also surfaces a small
+    // read-only summary of their RSVP with an Edit option, since once
+    // collapsed the original fields are otherwise unreachable.
     function collapseToGiftPanel(token) {
       identityFields.hidden = true;
       attendingToggle.hidden = true;
@@ -154,6 +156,9 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('gift-panel-wishlist').hidden = true;
       document.getElementById('choice-contribute').classList.remove('active');
       document.getElementById('choice-wishlist').classList.remove('active');
+      document.getElementById('rsvp-edit-panel').hidden = true;
+      wireEditPanel(token);
+      showRsvpSummary(token);
     }
 
     rsvpForm.addEventListener('submit', async (e) => {
@@ -262,6 +267,115 @@ function wireGiftPanel(token) {
   });
 }
 
+// Fetches and displays a returning guest's current RSVP details. Stashes
+// the raw data on the summary element so the Edit button can populate the
+// edit form without a second round trip.
+async function showRsvpSummary(token) {
+  const summaryEl = document.getElementById('rsvp-summary');
+  try {
+    const res = await fetch(`/api/rsvp/me?token=${encodeURIComponent(token)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('rsvp-summary-name').textContent = data.fullname;
+    document.getElementById('rsvp-summary-details').textContent = data.attending
+      ? `Attending — arriving ${data.arrival || '—'}${data.transport ? ` by ${data.transport}` : ''}`
+      : "Not attending";
+    summaryEl.dataset.current = JSON.stringify(data);
+    summaryEl.hidden = false;
+  } catch (err) {
+    console.error('Failed to load RSVP summary', err);
+  }
+}
+
+// Wires the Edit RSVP summary card — lets a returning guest change their
+// name, email, arrival time, transport, or invitation channels without
+// resubmitting the whole form (which would also re-run gift claiming).
+// Clones buttons first so re-wiring (collapseToGiftPanel can run more than
+// once) never stacks up duplicate listeners.
+function wireEditPanel(token) {
+  const editBtn = document.getElementById('rsvp-edit-btn');
+  const saveBtn = document.getElementById('rsvp-edit-save');
+  const cancelBtn = document.getElementById('rsvp-edit-cancel');
+  const freshEdit = editBtn.cloneNode(true);
+  const freshSave = saveBtn.cloneNode(true);
+  const freshCancel = cancelBtn.cloneNode(true);
+  editBtn.replaceWith(freshEdit);
+  saveBtn.replaceWith(freshSave);
+  cancelBtn.replaceWith(freshCancel);
+
+  const summaryEl = document.getElementById('rsvp-summary');
+  const editPanel = document.getElementById('rsvp-edit-panel');
+  const errorEl = document.getElementById('rsvp-edit-error');
+  const attendingFields = document.getElementById('rsvp-edit-attending-fields');
+
+  freshEdit.addEventListener('click', () => {
+    const data = JSON.parse(summaryEl.dataset.current || '{}');
+    document.getElementById('rsvp-edit-fullname').value = data.fullname || '';
+    document.getElementById('rsvp-edit-email').value = data.email || '';
+    attendingFields.hidden = !data.attending;
+    if (data.attending) {
+      document.getElementById('rsvp-edit-time').value = data.arrival || '';
+      document.getElementById('rsvp-edit-transport').value = data.transport || '';
+      const chans = new Set(data.channels || []);
+      document.querySelectorAll('input[name="edit-channel"]').forEach(cb => { cb.checked = chans.has(cb.value); });
+    }
+    errorEl.style.display = 'none';
+    summaryEl.hidden = true;
+    editPanel.hidden = false;
+  });
+
+  freshCancel.addEventListener('click', () => {
+    editPanel.hidden = true;
+    summaryEl.hidden = false;
+  });
+
+  freshSave.addEventListener('click', async () => {
+    errorEl.style.display = 'none';
+    const fullname = document.getElementById('rsvp-edit-fullname').value.trim();
+    const email = document.getElementById('rsvp-edit-email').value.trim();
+    if (!fullname || !email) {
+      errorEl.textContent = 'Please enter your name and email.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const payload = { token, fullname, email };
+    if (!attendingFields.hidden) {
+      const arrival = document.getElementById('rsvp-edit-time').value.trim();
+      if (!arrival) {
+        errorEl.textContent = 'Please enter your arrival time.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      payload.arrival = arrival;
+      payload.transport = document.getElementById('rsvp-edit-transport').value.trim();
+      payload.channels = [...document.querySelectorAll('input[name="edit-channel"]:checked')].map(c => c.value);
+    }
+
+    const freshSaveBtn = document.getElementById('rsvp-edit-save');
+    freshSaveBtn.disabled = true;
+    freshSaveBtn.textContent = 'Saving…';
+    try {
+      const res = await fetch('/api/rsvp/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save changes.');
+      editPanel.hidden = true;
+      await showRsvpSummary(token);
+      showToast('Your RSVP has been updated.');
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.style.display = 'block';
+    } finally {
+      freshSaveBtn.disabled = false;
+      freshSaveBtn.textContent = 'Save Changes';
+    }
+  });
+}
+
 // Small non-blocking message, used instead of alert() so claiming/unclaiming
 // a gift never feels like it interrupted or reloaded the page.
 function showToast(message) {
@@ -278,6 +392,18 @@ function showToast(message) {
   toast._hideTimer = setTimeout(() => toast.classList.remove('visible'), 4500);
 }
 
+// Shared name+category markup for a wishlist item. The name links out to the
+// referral link (opened in a new tab) when one is set, so tapping it never
+// interrupts the claim/select flow in the same page; items with no link just
+// render as plain text.
+function wishlistItemHeaderHtml(item) {
+  const nameHtml = item.referralLink
+    ? `<a class="name" href="${item.referralLink}" target="_blank" rel="noopener noreferrer">${item.name}</a>`
+    : `<span class="name">${item.name}</span>`;
+  const categoryHtml = item.category ? `<span class="category-tag">${item.category}</span>` : '';
+  return `<div class="wishlist-item-header">${nameHtml}${categoryHtml}</div>`;
+}
+
 // Builds one wishlist row. Used both for the initial full render and to swap
 // a single row in place after a successful claim/unclaim, without rebuilding
 // (and flashing) the whole list.
@@ -289,7 +415,7 @@ function buildWishlistRow(item, token) {
     row.setAttribute('data-tooltip', 'You can also change your choice anytime via the link in your confirmation email.');
   }
   const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : 'Claim this gift');
-  row.innerHTML = `<span class="name">${item.name}</span>` +
+  row.innerHTML = wishlistItemHeaderHtml(item) +
     `<button type="button" class="btn"${disabled ? ' disabled' : ''}>${label}</button>`;
 
   if (!disabled) {
