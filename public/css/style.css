@@ -358,6 +358,17 @@ button.btn{font-family:var(--sans); background:none; cursor:pointer;}
 .wishlist-item .btn:disabled{opacity:1; cursor:default; pointer-events:none;}
 .wishlist-item .btn:disabled::before{display:none;}
 
+.wishlist-item .btn[data-tooltip]{position:relative; overflow:visible;}
+.wishlist-item .btn[data-tooltip]:hover::after{
+  content:attr(data-tooltip);
+  position:absolute; bottom:calc(100% + 10px); left:50%; transform:translateX(-50%);
+  width:220px; padding:.7rem .9rem;
+  background:var(--off-black); border:1px solid var(--gold);
+  color:var(--cream); font-size:.68rem; letter-spacing:normal; text-transform:none;
+  line-height:1.4; text-align:center; white-space:normal;
+  z-index:20; pointer-events:none;
+}
+
 /* ---------- Archive filter ---------- */
 .filter-row{display:flex; gap:.6rem; flex-wrap:wrap; margin-bottom:2.6rem;}
 .filter-pill{

@@ -143,6 +143,14 @@ const upload = multer({
 const EVENT_DTSTART_UTC = '20260814T112600Z';
 const EVENT_DTEND_UTC = '20260814T144500Z';
 const EVENT_LOCATION = 'Số 23, ngách 309/16 đường Nguyễn Đức Thuận, Gia Lâm, Hà Nội';
+const SITE_URL = 'https://tide.erasight.net';
+
+// A guest's public_token is their only "login" — this link is how they get
+// back to manage their RSVP/gift after closing the tab or clearing local
+// storage, without needing an account or password.
+function manageLink(token) {
+  return `${SITE_URL}/invitation-box.html?token=${encodeURIComponent(token)}`;
+}
 
 function icsEscape(str) {
   return String(str).replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n');
@@ -287,6 +295,8 @@ app.post('/api/rsvp', (req, res, next) => {
           '',
           'A calendar invite is attached.',
           '',
+          `Want to change your RSVP or manage a gift later? Use this link anytime: ${manageLink(publicToken)}`,
+          '',
           '— TIDE',
         ].join('\n'),
         icalEvent: {
@@ -295,6 +305,21 @@ app.post('/api/rsvp', (req, res, next) => {
           content: buildInviteIcs({ uid: `rsvp-${rsvpId}@tide.erasight.net`, guestName: fullname }),
         },
       }).catch(err => console.error('Failed to send guest calendar invite', err));
+    } else {
+      transporter.sendMail({
+        from: process.env.SMTP_USER,
+        to: email,
+        subject: `TIDE — We received your message`,
+        text: [
+          `Hi ${fullname},`,
+          '',
+          "Thank you for letting us know, and for the message you left — it means a lot.",
+          '',
+          `Want to update your RSVP or manage a gift later? Use this link anytime: ${manageLink(publicToken)}`,
+          '',
+          '— TIDE',
+        ].join('\n'),
+      }).catch(err => console.error('Failed to send guest confirmation email', err));
     }
   }
 
@@ -361,6 +386,21 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
         subject: `TIDE Gift Claimed — ${claim.rows[0].name}`,
         text: `${rsvp.fullname} (${rsvp.email}) just claimed "${claim.rows[0].name}" from the wishlist.`,
       }).catch(err => console.error('Failed to send wishlist claim email', err));
+
+      transporter.sendMail({
+        from: process.env.SMTP_USER,
+        to: rsvp.email,
+        subject: `TIDE — You've claimed "${claim.rows[0].name}"`,
+        text: [
+          `Hi ${rsvp.fullname},`,
+          '',
+          `You've claimed "${claim.rows[0].name}" from the wishlist. Thank you!`,
+          '',
+          `Changed your mind? You can update your choice anytime here: ${manageLink(token)}`,
+          '',
+          '— TIDE',
+        ].join('\n'),
+      }).catch(err => console.error('Failed to send claim confirmation email', err));
     }
 
     res.json({ id: claim.rows[0].id, name: claim.rows[0].name });

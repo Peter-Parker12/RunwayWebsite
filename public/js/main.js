@@ -82,6 +82,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('rsvp-send-attending').addEventListener('click', submitRsvp);
     document.getElementById('rsvp-send-note').addEventListener('click', submitRsvp);
 
+    // Returning guest: pick up their token from a manage-RSVP email link
+    // (?token=...) or from this browser's local storage, and jump straight
+    // to their gift panel so they can claim/unclaim without resubmitting.
+    const urlToken = new URLSearchParams(location.search).get('token');
+    const savedToken = urlToken || localStorage.getItem('tide_rsvp_token');
+    if (savedToken) {
+      localStorage.setItem('tide_rsvp_token', savedToken);
+      document.getElementById('rsvp-panel-gift').hidden = false;
+      wireGiftPanel(savedToken);
+    }
+
     async function submitRsvp() {
       const fullname = document.getElementById('rsvp-fullname').value.trim();
       const email = document.getElementById('rsvp-email').value.trim();
@@ -120,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!res.ok) throw new Error('Request failed');
         const data = await res.json();
 
+        localStorage.setItem('tide_rsvp_token', data.token);
         document.getElementById('rsvp-confirm').textContent = data.updated
           ? 'Thank you — your RSVP has been updated.'
           : 'Thank you — your RSVP has been received.';
@@ -138,14 +150,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Wires the post-submission Contribute/Wishlist choice cards. Called once,
-// right after a successful RSVP submit, with that submission's public token.
+// Wires the post-submission Contribute/Wishlist choice cards. Called both
+// right after a successful RSVP submit and, for a returning guest, on page
+// load — clones the buttons first so re-wiring never stacks up duplicate
+// listeners.
 function wireGiftPanel(token) {
-  document.getElementById('choice-contribute').addEventListener('click', () => {
+  const contributeBtn = document.getElementById('choice-contribute');
+  const wishlistBtn = document.getElementById('choice-wishlist');
+  const freshContribute = contributeBtn.cloneNode(true);
+  const freshWishlist = wishlistBtn.cloneNode(true);
+  contributeBtn.replaceWith(freshContribute);
+  wishlistBtn.replaceWith(freshWishlist);
+
+  freshContribute.addEventListener('click', () => {
     document.getElementById('gift-panel-contribute').hidden = false;
     document.getElementById('gift-panel-wishlist').hidden = true;
   });
-  document.getElementById('choice-wishlist').addEventListener('click', async () => {
+  freshWishlist.addEventListener('click', async () => {
     document.getElementById('gift-panel-wishlist').hidden = false;
     document.getElementById('gift-panel-contribute').hidden = true;
     await renderWishlist(token);
@@ -159,11 +180,14 @@ async function renderWishlist(token) {
   list.innerHTML = '';
   items.forEach(item => {
     const row = document.createElement('div');
-    row.className = 'wishlist-item' + (item.claimed ? ' claimed' : '');
-    const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : 'Claim this gift');
     const disabled = item.claimed && !item.claimedByYou;
+    row.className = 'wishlist-item' + (disabled ? ' claimed' : '');
+    const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : 'Claim this gift');
+    const tooltip = item.claimedByYou
+      ? ' data-tooltip="You can also change your choice anytime via the link in your confirmation email."'
+      : '';
     row.innerHTML = `<span class="name">${item.name}</span>` +
-      `<button type="button" class="btn"${disabled ? ' disabled' : ''}>${label}</button>`;
+      `<button type="button" class="btn"${disabled ? ' disabled' : ''}${tooltip}>${label}</button>`;
     if (!disabled) {
       const btn = row.querySelector('button');
       const isUnclaim = item.claimedByYou;
@@ -178,7 +202,9 @@ async function renderWishlist(token) {
           alert('Sorry — someone just claimed this. Please pick another.');
           await renderWishlist(token);
         } else if (res.ok) {
-          alert(isUnclaim ? 'You\'ve released this gift.' : 'Thank you — you\'ve claimed this gift!');
+          alert(isUnclaim
+            ? 'You\'ve released this gift.'
+            : 'Thank you — you\'ve claimed this gift! A confirmation email is on its way, and you can change your choice anytime via the link inside it.');
           await renderWishlist(token);
         } else {
           alert('Something went wrong. Please try again.');
