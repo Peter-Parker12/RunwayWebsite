@@ -300,6 +300,15 @@ async function ensureSchema() {
   // Dropped from the wishlist — no longer offered.
   await pool.query(`DELETE FROM wishlist_items WHERE name = 'AirTag (x2)'`);
 
+  // 'Lọ cồn xịt (khử trùng)' was missing from the rename pass above, so the
+  // lowercase upsert above created a second row instead of updating this one
+  // in place — clean up the resulting stale, uncategorized duplicate. Only
+  // ever deletes it if still unclaimed, so a real guest claim is never lost.
+  await pool.query(`
+    DELETE FROM wishlist_items
+    WHERE name = 'Lọ cồn xịt (khử trùng)' AND claimed_by_rsvp_id IS NULL
+  `);
+
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS attending BOOLEAN NOT NULL DEFAULT true`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS note TEXT`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS photo_path TEXT`);
