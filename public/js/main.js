@@ -167,6 +167,7 @@ async function renderWishlist(token) {
         }
       });
     }
+    list.appendChild(row);
   });
 }
 
