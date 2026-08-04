@@ -139,6 +139,39 @@ const upload = multer({
   },
 });
 
+// Event is 18:26–21:45 Vietnam time (ICT, UTC+7) on Aug 14th 2026 = 11:26–14:45 UTC.
+const EVENT_DTSTART_UTC = '20260814T112600Z';
+const EVENT_DTEND_UTC = '20260814T144500Z';
+const EVENT_LOCATION = 'Số 23, ngách 309/16 đường Nguyễn Đức Thuận, Gia Lâm, Hà Nội';
+
+function icsEscape(str) {
+  return String(str).replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n');
+}
+
+function buildInviteIcs({ uid, guestName }) {
+  const dtstamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//TIDE//Hamvcl//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${dtstamp}`,
+    `DTSTART:${EVENT_DTSTART_UTC}`,
+    `DTEND:${EVENT_DTEND_UTC}`,
+    'SUMMARY:TIDE — A Private Runway & Gathering',
+    `DESCRIPTION:${icsEscape(`You're invited, ${guestName}. A private runway and gathering hosted by Hamvcl.`)}`,
+    `LOCATION:${icsEscape(EVENT_LOCATION)}`,
+    `ORGANIZER;CN=TIDE:MAILTO:${process.env.SMTP_USER || 'noreply@example.com'}`,
+    'STATUS:CONFIRMED',
+    'SEQUENCE:0',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+}
+
 app.get('/api/messages', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -239,6 +272,30 @@ app.post('/api/rsvp', (req, res, next) => {
           ].join('\n'),
       attachments,
     }).catch(err => console.error('Failed to send RSVP notification email', err));
+
+    if (attending) {
+      transporter.sendMail({
+        from: process.env.SMTP_USER,
+        to: email,
+        subject: `You're invited: TIDE — A Private Runway & Gathering`,
+        text: [
+          `Hi ${fullname},`,
+          '',
+          `Thank you for confirming — we can't wait to see you on August 14th, 2026 at ${arrival}.`,
+          '',
+          `Venue: ${EVENT_LOCATION}`,
+          '',
+          'A calendar invite is attached.',
+          '',
+          '— TIDE',
+        ].join('\n'),
+        icalEvent: {
+          filename: 'invite.ics',
+          method: 'PUBLISH',
+          content: buildInviteIcs({ uid: `rsvp-${rsvpId}@tide.erasight.net`, guestName: fullname }),
+        },
+      }).catch(err => console.error('Failed to send guest calendar invite', err));
+    }
   }
 
   res.status(201).json({ ok: true, id: rsvpId, token: publicToken, updated: isUpdate });
