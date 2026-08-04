@@ -282,12 +282,12 @@ function buildWishlistRow(item, token) {
   const row = document.createElement('div');
   const disabled = item.claimed && !item.claimedByYou;
   row.className = 'wishlist-item' + (disabled ? ' claimed' : '');
+  if (item.claimedByYou) {
+    row.setAttribute('data-tooltip', 'You can also change your choice anytime via the link in your confirmation email.');
+  }
   const label = item.claimedByYou ? 'Unclaim' : (item.claimed ? 'Claimed' : 'Claim this gift');
-  const tooltip = item.claimedByYou
-    ? ' data-tooltip="You can also change your choice anytime via the link in your confirmation email."'
-    : '';
   row.innerHTML = `<span class="name">${item.name}</span>` +
-    `<button type="button" class="btn"${disabled ? ' disabled' : ''}${tooltip}>${label}</button>`;
+    `<button type="button" class="btn"${disabled ? ' disabled' : ''}>${label}</button>`;
 
   if (!disabled) {
     const btn = row.querySelector('button');
