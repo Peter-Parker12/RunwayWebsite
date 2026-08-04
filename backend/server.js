@@ -300,6 +300,13 @@ async function ensureSchema() {
   // Dropped from the wishlist — no longer offered.
   await pool.query(`DELETE FROM wishlist_items WHERE name = 'AirTag (x2)'`);
 
+  // Superseded by the merged 'tương ớt chinsu size nhỏ +1 (nhỡ)' item —
+  // only ever deletes it while unclaimed, so a real guest claim is never lost.
+  await pool.query(`
+    DELETE FROM wishlist_items
+    WHERE name = 'Tương ớt Chinsu (size nhỡ)' AND claimed_by_rsvp_id IS NULL
+  `);
+
   // 'Lọ cồn xịt (khử trùng)' was missing from the rename pass above, so the
   // lowercase upsert above created a second row instead of updating this one
   // in place — clean up the resulting stale, uncategorized duplicate. Only
