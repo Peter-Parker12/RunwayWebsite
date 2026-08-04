@@ -1,3 +1,5 @@
 .env
 node_modules/
 .DS_Store
+n8n-ggsheet-int-a067de118281.json
+google-credentials.json

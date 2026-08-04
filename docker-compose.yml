@@ -32,10 +32,14 @@ services:
       SMTP_PASS: ${SMTP_PASS}
       RSVP_TO: ${RSVP_TO}
       UPLOAD_DIR: /uploads
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-credentials.json
+      GOOGLE_SHEET_ID: ${GOOGLE_SHEET_ID}
+      GOOGLE_SHEET_TAB: ${GOOGLE_SHEET_TAB:-Sheet1}
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:
       - uploads:/uploads
+      - ./google-credentials.json:/run/secrets/google-credentials.json:ro
 
 volumes:
   pgdata:

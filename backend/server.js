@@ -5,6 +5,7 @@ const fs = require('fs');
 const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
 const multer = require('multer');
+const { google } = require('googleapis');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -36,6 +37,42 @@ const transporter = mailEnabled
 
 if (!mailEnabled) {
   console.warn('SMTP_USER / SMTP_PASS not set — guest emails are disabled, submissions will still be saved.');
+}
+
+// Every RSVP submission and gift claim/release gets appended as a row —
+// this is Hai's primary view into new entries now (replaces host emails).
+const GOOGLE_CREDENTIALS_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
+const GOOGLE_SHEET_TAB = process.env.GOOGLE_SHEET_TAB || 'Sheet1';
+
+const sheetsEnabled = !!(GOOGLE_CREDENTIALS_PATH && GOOGLE_SHEET_ID && fs.existsSync(GOOGLE_CREDENTIALS_PATH));
+const sheetsClient = sheetsEnabled
+  ? google.sheets({
+      version: 'v4',
+      auth: new google.auth.GoogleAuth({
+        keyFile: GOOGLE_CREDENTIALS_PATH,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      }),
+    })
+  : null;
+
+if (!sheetsEnabled) {
+  console.warn('GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_SHEET_ID not set — Sheet logging is disabled, submissions will still be saved.');
+}
+
+async function appendSheetRow(row) {
+  if (!sheetsClient) return;
+  try {
+    await sheetsClient.spreadsheets.values.append({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: `${GOOGLE_SHEET_TAB}!A:K`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] },
+    });
+  } catch (err) {
+    console.error('Failed to log to Google Sheet', err.message);
+  }
 }
 
 const MAX_NAME_LEN = 60;
@@ -298,6 +335,20 @@ app.post('/api/rsvp', (req, res, next) => {
     client.release();
   }
 
+  appendSheetRow([
+    new Date().toISOString(),
+    isUpdate ? 'RSVP Updated' : 'RSVP',
+    fullname,
+    email,
+    attending ? 'Yes' : 'No',
+    arrival || '',
+    transport || '',
+    note || '',
+    photoPath ? 'Yes' : 'No',
+    voicePath ? 'Yes' : 'No',
+    giftName || (giftChoice === 'contribute' ? 'Intends to contribute' : giftConflict ? 'Conflict — not claimed' : ''),
+  ]);
+
   if (transporter) {
     const attachments = [];
     if (photoPath) attachments.push({ filename: photoPath, path: path.join(UPLOAD_DIR, photoPath) });
@@ -413,6 +464,11 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
     await client.query('UPDATE rsvps SET gift_type=$1, wishlist_item_id=$2 WHERE id=$3', ['wishlist', itemId, rsvp.id]);
     await client.query('COMMIT');
 
+    appendSheetRow([
+      new Date().toISOString(), 'Gift Claimed', rsvp.fullname, rsvp.email,
+      '', '', '', '', '', '', claim.rows[0].name,
+    ]);
+
     if (transporter) {
       transporter.sendMail({
         from: process.env.SMTP_USER,
@@ -451,7 +507,7 @@ app.post('/api/wishlist/:id/release', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const { rows: rsvpRows } = await client.query('SELECT id FROM rsvps WHERE public_token=$1', [token]);
+    const { rows: rsvpRows } = await client.query('SELECT id, fullname, email FROM rsvps WHERE public_token=$1', [token]);
     if (!rsvpRows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'RSVP not found' });
@@ -470,6 +526,11 @@ app.post('/api/wishlist/:id/release', async (req, res) => {
 
     await client.query('UPDATE rsvps SET gift_type=NULL, wishlist_item_id=NULL WHERE id=$1 AND wishlist_item_id=$2', [rsvp.id, itemId]);
     await client.query('COMMIT');
+
+    appendSheetRow([
+      new Date().toISOString(), 'Gift Released', rsvp.fullname, rsvp.email,
+      '', '', '', '', '', '', release.rows[0].name,
+    ]);
 
     res.json({ id: release.rows[0].id, name: release.rows[0].name });
   } catch (err) {
