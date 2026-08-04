@@ -31,8 +31,12 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       RSVP_TO: ${RSVP_TO}
+      UPLOAD_DIR: /uploads
     ports:
       - "${APP_PORT:-3000}:3000"
+    volumes:
+      - uploads:/uploads
 
 volumes:
   pgdata:
+  uploads:

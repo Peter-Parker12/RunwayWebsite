@@ -19,6 +19,10 @@
 
 *{box-sizing:border-box; margin:0; padding:0;}
 
+/* Author display:* rules (e.g. .btn{display:inline-block}) share the same
+   specificity as the UA [hidden] rule and can win on source order — force it. */
+[hidden]{display:none !important;}
+
 html{scroll-behavior:smooth;}
 
 body{
@@ -317,6 +321,29 @@ form{max-width:640px;}
 button.btn{font-family:var(--sans); background:none; cursor:pointer;}
 
 .form-note{font-size:.82rem; color:rgba(244,240,232,.55); margin-top:2rem;}
+
+/* ---------- RSVP flow ---------- */
+.rsvp-panel{margin-top:1.6rem;}
+.choice-row{display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; margin-top:.8rem;}
+@media (max-width:720px){.choice-row{grid-template-columns:1fr;}}
+.choice-card{
+  border:1px solid var(--line); padding:1.8rem; text-align:left; cursor:pointer;
+  background:none; color:var(--cream); font-family:var(--sans); width:100%; transition:.3s;
+}
+.choice-card h3{margin-bottom:.4rem; transition:.3s;}
+.choice-card:hover{border-color:var(--gold);}
+.choice-card.active{border-color:var(--gold); background:rgba(185,160,106,.08);}
+.choice-card.active h3{color:var(--gold);}
+
+.voice-recorder{display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:.6rem;}
+.voice-timer{font-size:.8rem; color:var(--gold); letter-spacing:.08em;}
+
+.wishlist-item{
+  border:1px solid var(--line); padding:1.4rem; display:flex; justify-content:space-between;
+  align-items:center; gap:1rem;
+}
+.wishlist-item.claimed{opacity:.45;}
+.wishlist-item .name{font-family:var(--serif); font-size:1.05rem;}
 
 /* ---------- Archive filter ---------- */
 .filter-row{display:flex; gap:.6rem; flex-wrap:wrap; margin-bottom:2.6rem;}

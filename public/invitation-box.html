@@ -99,49 +99,80 @@
       <p class="vi">Vui lòng xác nhận tham dự trước ngày sự kiện.</p>
     </div>
 
-    <form id="rsvp-form" class="reveal reveal-delay-1">
+    <form id="rsvp-form" class="reveal reveal-delay-1" novalidate>
       <div class="field">
         <label for="rsvp-fullname">Full Name (Nickname)</label>
         <input type="text" id="rsvp-fullname" name="fullname" required>
       </div>
-
-      <div class="field">
-        <label for="rsvp-time">Arrival Time on August 14th</label>
-        <input type="text" id="rsvp-time" name="arrival" placeholder="e.g. 18:26" required>
-      </div>
-
-      <div class="field">
-        <label for="rsvp-allergy">Food Allergies (if any)</label>
-        <input type="text" id="rsvp-allergy" name="allergy" placeholder="None / please specify">
-      </div>
-
-      <div class="field">
-        <label for="rsvp-transport">Mode of Transportation</label>
-        <input type="text" id="rsvp-transport" name="transport" placeholder="e.g. Car, Taxi, Motorbike">
-      </div>
-
       <div class="field">
         <label for="rsvp-email">Email</label>
         <input type="email" id="rsvp-email" name="email" required>
       </div>
 
       <div class="field">
-        <label>Where should we send your invitation card?</label>
-        <div class="checkbox-row">
-          <label><input type="checkbox" name="channel" value="instagram"> Instagram</label>
-          <label><input type="checkbox" name="channel" value="facebook"> Facebook</label>
-          <label><input type="checkbox" name="channel" value="mail"> Email</label>
+        <label>Will you be joining us?</label>
+        <div class="choice-row">
+          <button type="button" class="choice-card" id="choice-attending" data-attending="true">
+            <h3>I'll be there</h3><p>Tôi sẽ tham dự.</p>
+          </button>
+          <button type="button" class="choice-card" id="choice-not-attending" data-attending="false">
+            <h3>I can't make it</h3><p>Nếu không đi được.</p>
+          </button>
         </div>
       </div>
 
-      <div class="submit-row">
-        <button type="submit" class="btn">Send RSVP</button>
+      <div class="rsvp-panel" id="rsvp-panel-not-attending" hidden>
+        <p class="form-note" style="margin-top:0;">I won't be able to attend, but I'd love to leave a message.</p>
+        <div class="field">
+          <label for="rsvp-note">Send a note</label>
+          <textarea id="rsvp-note" name="note" maxlength="500" placeholder="Write a few words…"></textarea>
+        </div>
+        <div class="field">
+          <label>Record a 30-second voice message</label>
+          <div class="voice-recorder" id="voice-recorder">
+            <button type="button" class="btn" id="voice-record-btn">Start Recording</button>
+            <span class="voice-timer" id="voice-timer" hidden>00:00 / 00:30</span>
+            <audio id="voice-preview" controls hidden></audio>
+            <button type="button" class="btn" id="voice-rerecord-btn" hidden>Re-record</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="rsvp-photo">Upload one photo together</label>
+          <input type="file" id="rsvp-photo" accept="image/jpeg,image/png,image/webp">
+        </div>
+        <div class="submit-row">
+          <button type="button" class="btn" id="rsvp-send-note">Send RSVP</button>
+        </div>
       </div>
 
       <p id="rsvp-confirm" class="form-note" style="display:none; color:var(--gold);">
-        Thank you — your RSVP has been received. We look forward to seeing you on August 14th.
+        Thank you — your RSVP has been received.
       </p>
     </form>
+
+    <div id="rsvp-panel-gift" class="rsvp-panel" hidden style="margin-top:3.4rem;">
+      <div class="section-head">
+        <span class="eyebrow">A Small Ask</span>
+        <h2>Would you like to give a gift?</h2>
+      </div>
+      <div class="choice-row">
+        <button type="button" class="choice-card" id="choice-contribute" data-gift="contribute">
+          <h3>Contribute to the Journey</h3><p>Any amount, no expectation.</p>
+        </button>
+        <button type="button" class="choice-card" id="choice-wishlist" data-gift="wishlist">
+          <h3>Gift from the Wishlist</h3><p>Pick something from a short list.</p>
+        </button>
+      </div>
+      <div id="gift-panel-contribute" class="rsvp-panel" hidden>
+        <div class="card" style="text-align:center;">
+          <div class="ph ph-square" data-label="Payment QR — coming soon" style="max-width:280px; margin:0 auto;"></div>
+          <p class="form-note">If you'd like, you can contribute any amount toward Hai's next chapter in Europe. There is absolutely no expected amount — your presence is already a gift. Payment details will be added here soon.</p>
+        </div>
+      </div>
+      <div id="gift-panel-wishlist" class="rsvp-panel" hidden>
+        <div id="wishlist-list" class="grid-2"></div>
+      </div>
+    </div>
   </div>
 </section>
 
