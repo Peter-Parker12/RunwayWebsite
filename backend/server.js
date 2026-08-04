@@ -141,13 +141,35 @@ async function findSheetRowByEmail(email) {
   }
 }
 
-// One row per guest, no duplicates: reuses a tracked sheet_row, otherwise
-// tries to find their existing row by email before falling back to null
-// (meaning: never logged before, caller should append).
+// A tracked sheet_row can go stale if someone edits the sheet by hand
+// (deleting/reordering rows) — confirm the row still belongs to this email
+// before trusting it, so a resubmit/claim never silently overwrites a
+// different guest's line.
+async function sheetRowMatchesEmail(sheetRow, email) {
+  if (!sheetsClient || !sheetRow) return false;
+  try {
+    const res = await sheetsClient.spreadsheets.values.get({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: `${GOOGLE_SHEET_TAB}!D${sheetRow}`,
+    });
+    const cell = res.data.values?.[0]?.[0] || '';
+    return cell.trim().toLowerCase() === email.trim().toLowerCase();
+  } catch (err) {
+    console.error('Failed to verify sheet row email', err.message);
+    return false;
+  }
+}
+
+// One row per guest, no duplicates: reuses a tracked sheet_row once it's
+// been verified to still point at this guest's row, otherwise re-finds it
+// by email (or returns null, meaning: never logged / no longer present,
+// caller should append a fresh row).
 async function resolveSheetRow(rsvpId, email, knownSheetRow) {
-  if (knownSheetRow) return knownSheetRow;
+  if (knownSheetRow && await sheetRowMatchesEmail(knownSheetRow, email)) {
+    return knownSheetRow;
+  }
   const found = await findSheetRowByEmail(email);
-  if (found) {
+  if (found !== knownSheetRow) {
     pool.query('UPDATE rsvps SET sheet_row=$1 WHERE id=$2', [found, rsvpId])
       .catch(err => console.error('Failed to persist sheet_row', err.message));
   }
