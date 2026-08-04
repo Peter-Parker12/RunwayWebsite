@@ -239,7 +239,7 @@ app.post('/api/rsvp', (req, res, next) => {
 
   const newToken = crypto.randomUUID();
 
-  let rsvpId, publicToken, isUpdate;
+  let rsvpId, publicToken, isUpdate, giftName = null;
   try {
     const { rows } = await pool.query(
       `INSERT INTO rsvps (fullname, email, attending, arrival, transport, note, photo_path, voice_path, public_token)
@@ -248,12 +248,19 @@ app.post('/api/rsvp', (req, res, next) => {
          fullname=EXCLUDED.fullname, attending=EXCLUDED.attending, arrival=EXCLUDED.arrival,
          transport=EXCLUDED.transport, note=EXCLUDED.note, photo_path=EXCLUDED.photo_path,
          voice_path=EXCLUDED.voice_path
-       RETURNING id, public_token, (xmax <> 0) AS is_update`,
+       RETURNING id, public_token, wishlist_item_id, (xmax <> 0) AS is_update`,
       [fullname, email, attending, arrival, transport, note, photoPath, voicePath, newToken]
     );
     rsvpId = rows[0].id;
     publicToken = rows[0].public_token;
     isUpdate = rows[0].is_update;
+
+    // A gift may already be claimed from a previous submission (claiming is
+    // its own action, separate from the RSVP form) — surface it here too.
+    if (rows[0].wishlist_item_id) {
+      const { rows: itemRows } = await pool.query('SELECT name FROM wishlist_items WHERE id=$1', [rows[0].wishlist_item_id]);
+      giftName = itemRows[0]?.name || null;
+    }
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to save RSVP' });
@@ -269,15 +276,16 @@ app.post('/api/rsvp', (req, res, next) => {
       to: process.env.RSVP_TO,
       replyTo: email,
       subject: `TIDE RSVP ${isUpdate ? 'Updated' : ''} — ${fullname} (${attending ? 'Attending' : 'Not attending'})`,
-      text: attending
-        ? [`Name: ${fullname}`, `Email: ${email}`, `Status: Attending`, `Arrival: ${arrival}`, `Transport: ${transport || 'Not specified'}`].join('\n')
+      text: (attending
+        ? [`Name: ${fullname}`, `Email: ${email}`, `Status: Attending`, `Arrival: ${arrival}`, `Transport: ${transport || 'Not specified'}`]
         : [
             `Name: ${fullname}`,
             `Email: ${email}`,
             `Note: ${note || '(none)'}`,
             `Photo attached: ${photoPath ? 'yes' : 'no'}`,
             `Voice message attached: ${voicePath ? 'yes' : 'no'}`,
-          ].join('\n'),
+          ]
+      ).concat(`Gift: ${giftName || 'Not selected yet'}`).join('\n'),
       attachments,
     }).catch(err => console.error('Failed to send RSVP notification email', err));
 
