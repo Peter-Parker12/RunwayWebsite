@@ -119,6 +119,24 @@ async function updateSheetRow(sheetRow, values) {
   }
 }
 
+// A guest can hold any number of wishlist items plus an independent
+// "intends to contribute" flag — this is the one place that turns that
+// state into the single human-readable string shown in the sheet's Gift
+// column and in guest emails.
+async function computeGiftSummary(rsvpId) {
+  const { rows } = await pool.query(
+    `SELECT gift_type,
+            (SELECT array_agg(name ORDER BY id) FROM wishlist_items WHERE claimed_by_rsvp_id=$1) AS items
+     FROM rsvps WHERE id=$1`,
+    [rsvpId]
+  );
+  const items = rows[0]?.items || [];
+  const parts = [];
+  if (rows[0]?.gift_type === 'contribute') parts.push('Intends to contribute');
+  if (items.length) parts.push(items.join(', '));
+  return { summary: parts.join(' + '), items };
+}
+
 // Self-heals rsvps.sheet_row for guests who RSVP'd/claimed before this
 // column existed — looks up their most recent row by email so we can start
 // updating in place instead of appending.
@@ -382,11 +400,15 @@ app.post('/api/rsvp', (req, res, next) => {
   }
 
   const giftChoice = String(req.body?.giftChoice || '').trim(); // 'contribute' | 'wishlist' | ''
-  const wishlistItemId = giftChoice === 'wishlist' ? Number(req.body?.wishlistItemId) : null;
+  // A guest can select any number of wishlist items — dedupe, cap generously
+  // (the whole list is only ~22 items) so this can't be abused as a flood vector.
+  const wishlistItemIds = giftChoice === 'wishlist'
+    ? [...new Set([].concat(req.body?.wishlistItemId || []).map(Number).filter(Number.isInteger))].slice(0, 30)
+    : [];
 
   const newToken = crypto.randomUUID();
 
-  let rsvpId, publicToken, isUpdate, sheetRowOnRecord, giftName = null, giftConflict = false;
+  let rsvpId, publicToken, isUpdate, sheetRowOnRecord, claimedNames = [], conflictNames = [];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -398,40 +420,36 @@ app.post('/api/rsvp', (req, res, next) => {
          fullname=EXCLUDED.fullname, attending=EXCLUDED.attending, arrival=EXCLUDED.arrival,
          transport=EXCLUDED.transport, channels=EXCLUDED.channels, note=EXCLUDED.note,
          photo_path=EXCLUDED.photo_path, voice_path=EXCLUDED.voice_path
-       RETURNING id, public_token, wishlist_item_id, sheet_row, (xmax <> 0) AS is_update`,
+       RETURNING id, public_token, sheet_row, (xmax <> 0) AS is_update`,
       [fullname, email, attending, arrival, transport, channels, note, photoPath, voicePath, newToken]
     );
     rsvpId = rows[0].id;
     publicToken = rows[0].public_token;
     isUpdate = rows[0].is_update;
-    let existingWishlistItemId = rows[0].wishlist_item_id;
     sheetRowOnRecord = rows[0].sheet_row;
 
     if (giftChoice === 'contribute') {
       await client.query('UPDATE rsvps SET gift_type=$1 WHERE id=$2', ['contribute', rsvpId]);
-    } else if (giftChoice === 'wishlist' && Number.isInteger(wishlistItemId)) {
-      const claim = await client.query(
-        `UPDATE wishlist_items SET claimed_by_rsvp_id=$1, claimed_at=now()
-         WHERE id=$2 AND claimed_by_rsvp_id IS NULL RETURNING id, name`,
-        [rsvpId, wishlistItemId]
-      );
-      if (claim.rowCount > 0) {
-        await client.query('UPDATE rsvps SET gift_type=$1, wishlist_item_id=$2 WHERE id=$3', ['wishlist', wishlistItemId, rsvpId]);
-        giftName = claim.rows[0].name;
-        existingWishlistItemId = wishlistItemId;
-      } else {
-        giftConflict = true; // someone else claimed it in the same instant — RSVP still succeeds
+    } else if (giftChoice === 'wishlist' && wishlistItemIds.length) {
+      for (const itemId of wishlistItemIds) {
+        const claim = await client.query(
+          `UPDATE wishlist_items SET claimed_by_rsvp_id=$1, claimed_at=now()
+           WHERE id=$2 AND claimed_by_rsvp_id IS NULL RETURNING id, name`,
+          [rsvpId, itemId]
+        );
+        if (claim.rowCount > 0) {
+          claimedNames.push(claim.rows[0].name);
+        } else {
+          const { rows: nameRows } = await client.query('SELECT name FROM wishlist_items WHERE id=$1', [itemId]);
+          conflictNames.push(nameRows[0]?.name || `#${itemId}`); // someone else claimed it in the same instant — RSVP still succeeds
+        }
+      }
+      if (claimedNames.length) {
+        await client.query('UPDATE rsvps SET gift_type=$1 WHERE id=$2', ['wishlist', rsvpId]);
       }
     }
 
     await client.query('COMMIT');
-
-    // Surface whatever gift is actually attached to this RSVP (from this
-    // submission, or a prior one — claiming is otherwise its own action).
-    if (!giftName && existingWishlistItemId) {
-      const { rows: itemRows } = await pool.query('SELECT name FROM wishlist_items WHERE id=$1', [existingWishlistItemId]);
-      giftName = itemRows[0]?.name || null;
-    }
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error(err);
@@ -439,6 +457,11 @@ app.post('/api/rsvp', (req, res, next) => {
   } finally {
     client.release();
   }
+
+  // Always report the guest's full current gift state (this submission's
+  // picks plus anything claimed earlier) — a single item column can't
+  // represent "holds several wishlist items", so this is computed fresh.
+  const { summary: giftSummary } = await computeGiftSummary(rsvpId);
 
   (async () => {
     const sheetValues = [
@@ -452,7 +475,7 @@ app.post('/api/rsvp', (req, res, next) => {
       note || '',
       photoPath ? 'Yes' : 'No',
       voicePath ? 'Yes' : 'No',
-      giftName || (giftChoice === 'contribute' ? 'Intends to contribute' : giftConflict ? 'Conflict — not claimed' : ''),
+      giftSummary || (conflictNames.length ? 'Conflict — not claimed' : ''),
       channels.join(', '),
     ];
     // One row per guest: reuse their existing row if we have or can find one.
@@ -473,10 +496,10 @@ app.post('/api/rsvp', (req, res, next) => {
     if (photoPath) attachments.push({ filename: photoPath, path: path.join(UPLOAD_DIR, photoPath) });
     if (voicePath) attachments.push({ filename: voicePath, path: path.join(UPLOAD_DIR, voicePath) });
 
-    const giftLineForGuest = giftName
-      ? `You've claimed "${giftName}" from the wishlist — thank you!`
-      : giftConflict
-      ? "The gift you picked was just claimed by someone else — use the link below to pick another."
+    const giftLineForGuest = claimedNames.length
+      ? `You've claimed ${claimedNames.map(n => `"${n}"`).join(', ')} from the wishlist — thank you!`
+      : conflictNames.length
+      ? `The gift${conflictNames.length > 1 ? 's' : ''} you picked (${conflictNames.join(', ')}) ${conflictNames.length > 1 ? 'were' : 'was'} just claimed by someone else — use the link below to pick another.`
       : giftChoice === 'contribute'
       ? 'Thank you for wanting to contribute to the journey!'
       : null;
@@ -527,7 +550,7 @@ app.post('/api/rsvp', (req, res, next) => {
     }
   }
 
-  res.status(201).json({ ok: true, id: rsvpId, token: publicToken, updated: isUpdate, giftConflict, giftName });
+  res.status(201).json({ ok: true, id: rsvpId, token: publicToken, updated: isUpdate, giftNames: claimedNames, giftConflicts: conflictNames });
 });
 
 app.get('/api/wishlist', async (req, res) => {
@@ -580,18 +603,21 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
       return res.status(409).json({ error: 'This gift has already been claimed.' });
     }
 
-    await client.query('UPDATE rsvps SET gift_type=$1, wishlist_item_id=$2 WHERE id=$3', ['wishlist', itemId, rsvp.id]);
+    await client.query('UPDATE rsvps SET gift_type=$1 WHERE id=$2', ['wishlist', rsvp.id]);
     await client.query('COMMIT');
 
     // Update this guest's existing sheet row rather than appending a new
-    // line every time they change their gift choice.
+    // line every time they change their gift choice — the cell shows their
+    // full current gift set, not just the item claimed in this call, since
+    // a guest can hold several at once.
+    const { summary: giftSummary } = await computeGiftSummary(rsvp.id);
     const sheetRow = await resolveSheetRow(rsvp.id, rsvp.email, rsvp.sheet_row);
     if (sheetRow) {
-      updateSheetGiftCell(sheetRow, claim.rows[0].name).catch(() => {});
+      updateSheetGiftCell(sheetRow, giftSummary).catch(() => {});
     } else {
       appendSheetRow([
         new Date().toISOString(), 'Gift Claimed', rsvp.fullname, rsvp.email,
-        '', '', '', '', '', '', claim.rows[0].name, '',
+        '', '', '', '', '', '', giftSummary, '',
       ]);
     }
 
@@ -650,18 +676,28 @@ app.post('/api/wishlist/:id/release', async (req, res) => {
       return res.status(403).json({ error: 'You have not claimed this gift.' });
     }
 
-    await client.query('UPDATE rsvps SET gift_type=NULL, wishlist_item_id=NULL WHERE id=$1 AND wishlist_item_id=$2', [rsvp.id, itemId]);
+    // A guest can hold several items — only clear the 'wishlist' gift_type
+    // flag once none remain (an independent 'contribute' pledge, if any, is
+    // untouched either way).
+    const { rows: remaining } = await client.query(
+      'SELECT COUNT(*)::int AS cnt FROM wishlist_items WHERE claimed_by_rsvp_id=$1', [rsvp.id]
+    );
+    if (remaining[0].cnt === 0) {
+      await client.query(`UPDATE rsvps SET gift_type = CASE WHEN gift_type = 'wishlist' THEN NULL ELSE gift_type END WHERE id=$1`, [rsvp.id]);
+    }
     await client.query('COMMIT');
 
     // Same one-row-per-guest rule as claim: clear the existing row's Gift
-    // cell instead of appending (or deleting) a row.
+    // cell instead of appending (or deleting) a row — reflects the guest's
+    // full remaining gift set, not just the item just released.
+    const { summary: giftSummary } = await computeGiftSummary(rsvp.id);
     const sheetRow = await resolveSheetRow(rsvp.id, rsvp.email, rsvp.sheet_row);
     if (sheetRow) {
-      updateSheetGiftCell(sheetRow, '').catch(() => {});
+      updateSheetGiftCell(sheetRow, giftSummary).catch(() => {});
     } else {
       appendSheetRow([
         new Date().toISOString(), 'Gift Released', rsvp.fullname, rsvp.email,
-        '', '', '', '', '', '', release.rows[0].name, '',
+        '', '', '', '', '', '', giftSummary, '',
       ]);
     }
 

@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (rsvpForm) {
     let attending = null;
     let selectedGiftChoice = ''; // 'contribute' | 'wishlist' | ''
-    let selectedWishlistItemId = null;
+    let selectedWishlistItemIds = new Set(); // a guest can pick more than one
     const voiceApi = setUpVoiceRecorder();
 
     const identityFields = document.getElementById('rsvp-identity-fields');
@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     choiceContribute.addEventListener('click', () => {
       selectedGiftChoice = selectedGiftChoice === 'contribute' ? '' : 'contribute';
-      selectedWishlistItemId = null;
+      selectedWishlistItemIds.clear();
       choiceContribute.classList.toggle('active', selectedGiftChoice === 'contribute');
       choiceWishlist.classList.remove('active');
       giftPanelContribute.hidden = selectedGiftChoice !== 'contribute';
@@ -123,14 +123,15 @@ document.addEventListener('DOMContentLoaded', () => {
       list.innerHTML = '';
       items.forEach(item => {
         const row = document.createElement('div');
-        const isSelected = selectedWishlistItemId === item.id;
+        const isSelected = selectedWishlistItemIds.has(item.id);
         row.className = 'wishlist-item' + (item.claimed ? ' claimed' : '') + (isSelected ? ' selected' : '');
         const label = item.claimed ? 'Taken' : (isSelected ? 'Selected' : 'Select this gift');
         row.innerHTML = `<span class="name">${item.name}</span>` +
           `<button type="button" class="btn"${item.claimed ? ' disabled' : ''}>${label}</button>`;
         if (!item.claimed) {
           row.querySelector('button').addEventListener('click', () => {
-            selectedWishlistItemId = isSelected ? null : item.id;
+            if (isSelected) selectedWishlistItemIds.delete(item.id);
+            else selectedWishlistItemIds.add(item.id);
             renderWishlistSelect();
           });
         }
@@ -191,9 +192,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (selectedGiftChoice === 'contribute') {
         fd.append('giftChoice', 'contribute');
-      } else if (selectedGiftChoice === 'wishlist' && selectedWishlistItemId) {
+      } else if (selectedGiftChoice === 'wishlist' && selectedWishlistItemIds.size) {
         fd.append('giftChoice', 'wishlist');
-        fd.append('wishlistItemId', String(selectedWishlistItemId));
+        selectedWishlistItemIds.forEach(id => fd.append('wishlistItemId', String(id)));
       }
 
       const submitBtn = document.getElementById('rsvp-submit');
@@ -212,8 +213,9 @@ document.addEventListener('DOMContentLoaded', () => {
           : 'Thank you — your RSVP has been received.';
         document.getElementById('rsvp-confirm').style.display = 'block';
 
-        if (data.giftConflict) {
-          showToast('Sorry — that gift was just claimed by someone else. Pick another below.');
+        if (data.giftConflicts && data.giftConflicts.length) {
+          const were = data.giftConflicts.length > 1 ? 'were' : 'was';
+          showToast(`Sorry — ${data.giftConflicts.join(', ')} ${were} just claimed by someone else. Pick again below.`);
         }
 
         collapseToGiftPanel(data.token);
