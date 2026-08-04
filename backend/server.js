@@ -60,19 +60,98 @@ if (!sheetsEnabled) {
   console.warn('GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_SHEET_ID not set — Sheet logging is disabled, submissions will still be saved.');
 }
 
+function parseSheetRowNumber(updatedRange) {
+  // e.g. "Sheet1!A38:L38" -> 38
+  const m = /![A-Z]+(\d+)/.exec(updatedRange || '');
+  return m ? Number(m[1]) : null;
+}
+
+// Returns the 1-indexed sheet row the entry landed on, so a later gift
+// claim/release can update that same row instead of appending a new one.
 async function appendSheetRow(row) {
-  if (!sheetsClient) return;
+  if (!sheetsClient) return null;
   try {
-    await sheetsClient.spreadsheets.values.append({
+    const res = await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: `${GOOGLE_SHEET_TAB}!A:L`,
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] },
     });
+    return parseSheetRowNumber(res.data?.updates?.updatedRange);
   } catch (err) {
     console.error('Failed to log to Google Sheet', err.message);
+    return null;
   }
+}
+
+// Column K is "Gift" in the A:L header layout (see appendSheetRow's row shape).
+async function updateSheetGiftCell(sheetRow, giftValue) {
+  if (!sheetsClient || !sheetRow) return false;
+  try {
+    await sheetsClient.spreadsheets.values.update({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: `${GOOGLE_SHEET_TAB}!K${sheetRow}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[giftValue]] },
+    });
+    return true;
+  } catch (err) {
+    console.error('Failed to update Google Sheet gift cell', err.message);
+    return false;
+  }
+}
+
+// Overwrites a guest's whole row in place (used when they resubmit their RSVP).
+async function updateSheetRow(sheetRow, values) {
+  if (!sheetsClient || !sheetRow) return false;
+  try {
+    await sheetsClient.spreadsheets.values.update({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: `${GOOGLE_SHEET_TAB}!A${sheetRow}:L${sheetRow}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [values] },
+    });
+    return true;
+  } catch (err) {
+    console.error('Failed to update Google Sheet row', err.message);
+    return false;
+  }
+}
+
+// Self-heals rsvps.sheet_row for guests who RSVP'd/claimed before this
+// column existed — looks up their most recent row by email so we can start
+// updating in place instead of appending.
+async function findSheetRowByEmail(email) {
+  if (!sheetsClient) return null;
+  try {
+    const res = await sheetsClient.spreadsheets.values.get({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: `${GOOGLE_SHEET_TAB}!D:D`,
+    });
+    const values = res.data.values || [];
+    const target = email.trim().toLowerCase();
+    for (let i = values.length - 1; i >= 0; i--) {
+      if ((values[i][0] || '').trim().toLowerCase() === target) return i + 1;
+    }
+    return null;
+  } catch (err) {
+    console.error('Failed to look up sheet row by email', err.message);
+    return null;
+  }
+}
+
+// One row per guest, no duplicates: reuses a tracked sheet_row, otherwise
+// tries to find their existing row by email before falling back to null
+// (meaning: never logged before, caller should append).
+async function resolveSheetRow(rsvpId, email, knownSheetRow) {
+  if (knownSheetRow) return knownSheetRow;
+  const found = await findSheetRowByEmail(email);
+  if (found) {
+    pool.query('UPDATE rsvps SET sheet_row=$1 WHERE id=$2', [found, rsvpId])
+      .catch(err => console.error('Failed to persist sheet_row', err.message));
+  }
+  return found;
 }
 
 const MAX_NAME_LEN = 60;
@@ -142,6 +221,7 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS gift_type TEXT`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS wishlist_item_id INTEGER REFERENCES wishlist_items(id)`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS public_token TEXT`);
+  await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS sheet_row INTEGER`);
 
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS rsvps_public_token_idx
@@ -284,7 +364,7 @@ app.post('/api/rsvp', (req, res, next) => {
 
   const newToken = crypto.randomUUID();
 
-  let rsvpId, publicToken, isUpdate, giftName = null, giftConflict = false;
+  let rsvpId, publicToken, isUpdate, sheetRowOnRecord, giftName = null, giftConflict = false;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -296,13 +376,14 @@ app.post('/api/rsvp', (req, res, next) => {
          fullname=EXCLUDED.fullname, attending=EXCLUDED.attending, arrival=EXCLUDED.arrival,
          transport=EXCLUDED.transport, channels=EXCLUDED.channels, note=EXCLUDED.note,
          photo_path=EXCLUDED.photo_path, voice_path=EXCLUDED.voice_path
-       RETURNING id, public_token, wishlist_item_id, (xmax <> 0) AS is_update`,
+       RETURNING id, public_token, wishlist_item_id, sheet_row, (xmax <> 0) AS is_update`,
       [fullname, email, attending, arrival, transport, channels, note, photoPath, voicePath, newToken]
     );
     rsvpId = rows[0].id;
     publicToken = rows[0].public_token;
     isUpdate = rows[0].is_update;
     let existingWishlistItemId = rows[0].wishlist_item_id;
+    sheetRowOnRecord = rows[0].sheet_row;
 
     if (giftChoice === 'contribute') {
       await client.query('UPDATE rsvps SET gift_type=$1 WHERE id=$2', ['contribute', rsvpId]);
@@ -337,20 +418,33 @@ app.post('/api/rsvp', (req, res, next) => {
     client.release();
   }
 
-  appendSheetRow([
-    new Date().toISOString(),
-    isUpdate ? 'RSVP Updated' : 'RSVP',
-    fullname,
-    email,
-    attending ? 'Yes' : 'No',
-    arrival || '',
-    transport || '',
-    note || '',
-    photoPath ? 'Yes' : 'No',
-    voicePath ? 'Yes' : 'No',
-    giftName || (giftChoice === 'contribute' ? 'Intends to contribute' : giftConflict ? 'Conflict — not claimed' : ''),
-    channels.join(', '),
-  ]);
+  (async () => {
+    const sheetValues = [
+      new Date().toISOString(),
+      isUpdate ? 'RSVP Updated' : 'RSVP',
+      fullname,
+      email,
+      attending ? 'Yes' : 'No',
+      arrival || '',
+      transport || '',
+      note || '',
+      photoPath ? 'Yes' : 'No',
+      voicePath ? 'Yes' : 'No',
+      giftName || (giftChoice === 'contribute' ? 'Intends to contribute' : giftConflict ? 'Conflict — not claimed' : ''),
+      channels.join(', '),
+    ];
+    // One row per guest: reuse their existing row if we have or can find one.
+    const sheetRow = await resolveSheetRow(rsvpId, email, sheetRowOnRecord);
+    if (sheetRow) {
+      updateSheetRow(sheetRow, sheetValues);
+    } else {
+      const newSheetRow = await appendSheetRow(sheetValues);
+      if (newSheetRow) {
+        pool.query('UPDATE rsvps SET sheet_row=$1 WHERE id=$2', [newSheetRow, rsvpId])
+          .catch(err => console.error('Failed to persist sheet_row', err.message));
+      }
+    }
+  })().catch(err => console.error('Failed to sync Google Sheet row', err.message));
 
   if (transporter) {
     const attachments = [];
@@ -447,7 +541,7 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const { rows: rsvpRows } = await client.query('SELECT id, fullname, email FROM rsvps WHERE public_token=$1', [token]);
+    const { rows: rsvpRows } = await client.query('SELECT id, fullname, email, sheet_row FROM rsvps WHERE public_token=$1', [token]);
     if (!rsvpRows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'RSVP not found' });
@@ -467,10 +561,17 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
     await client.query('UPDATE rsvps SET gift_type=$1, wishlist_item_id=$2 WHERE id=$3', ['wishlist', itemId, rsvp.id]);
     await client.query('COMMIT');
 
-    appendSheetRow([
-      new Date().toISOString(), 'Gift Claimed', rsvp.fullname, rsvp.email,
-      '', '', '', '', '', '', claim.rows[0].name, '',
-    ]);
+    // Update this guest's existing sheet row rather than appending a new
+    // line every time they change their gift choice.
+    const sheetRow = await resolveSheetRow(rsvp.id, rsvp.email, rsvp.sheet_row);
+    if (sheetRow) {
+      updateSheetGiftCell(sheetRow, claim.rows[0].name).catch(() => {});
+    } else {
+      appendSheetRow([
+        new Date().toISOString(), 'Gift Claimed', rsvp.fullname, rsvp.email,
+        '', '', '', '', '', '', claim.rows[0].name, '',
+      ]);
+    }
 
     if (transporter) {
       transporter.sendMail({
@@ -510,7 +611,7 @@ app.post('/api/wishlist/:id/release', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const { rows: rsvpRows } = await client.query('SELECT id, fullname, email FROM rsvps WHERE public_token=$1', [token]);
+    const { rows: rsvpRows } = await client.query('SELECT id, fullname, email, sheet_row FROM rsvps WHERE public_token=$1', [token]);
     if (!rsvpRows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'RSVP not found' });
@@ -530,10 +631,17 @@ app.post('/api/wishlist/:id/release', async (req, res) => {
     await client.query('UPDATE rsvps SET gift_type=NULL, wishlist_item_id=NULL WHERE id=$1 AND wishlist_item_id=$2', [rsvp.id, itemId]);
     await client.query('COMMIT');
 
-    appendSheetRow([
-      new Date().toISOString(), 'Gift Released', rsvp.fullname, rsvp.email,
-      '', '', '', '', '', '', release.rows[0].name, '',
-    ]);
+    // Same one-row-per-guest rule as claim: clear the existing row's Gift
+    // cell instead of appending (or deleting) a row.
+    const sheetRow = await resolveSheetRow(rsvp.id, rsvp.email, rsvp.sheet_row);
+    if (sheetRow) {
+      updateSheetGiftCell(sheetRow, '').catch(() => {});
+    } else {
+      appendSheetRow([
+        new Date().toISOString(), 'Gift Released', rsvp.fullname, rsvp.email,
+        '', '', '', '', '', '', release.rows[0].name, '',
+      ]);
+    }
 
     res.json({ id: release.rows[0].id, name: release.rows[0].name });
   } catch (err) {
