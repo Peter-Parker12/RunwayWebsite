@@ -138,6 +138,14 @@
           <label for="rsvp-transport">Mode of Transportation</label>
           <input type="text" id="rsvp-transport" name="transport" placeholder="e.g. Car, Taxi, Motorbike">
         </div>
+        <div class="field">
+          <label>Where should we send your e-invitation?</label>
+          <div class="checkbox-row">
+            <label><input type="checkbox" name="channel" value="facebook"> Facebook</label>
+            <label><input type="checkbox" name="channel" value="email"> Email</label>
+            <label><input type="checkbox" name="channel" value="instagram"> Instagram</label>
+          </div>
+        </div>
       </div>
 
       <div class="rsvp-panel" id="rsvp-panel-not-attending" hidden>
@@ -176,8 +184,8 @@
         </div>
         <div id="gift-panel-contribute" class="rsvp-panel" hidden>
           <div class="card" style="text-align:center;">
-            <div class="ph ph-square" data-label="Payment QR — coming soon" style="max-width:280px; margin:0 auto;"></div>
-            <p class="form-note">If you'd like, you can contribute any amount toward Hai's next chapter in Europe. There is absolutely no expected amount — your presence is already a gift. Payment details will be added here soon.</p>
+            <img src="/images/payment-qr.jpg" alt="Payment QR code" style="max-width:280px; width:100%; margin:0 auto; display:block;">
+            <p class="form-note">If you'd like, you can contribute any amount toward Hai's next chapter in Europe. There is absolutely no expected amount — your presence is already a gift.</p>
           </div>
         </div>
         <div id="gift-panel-wishlist" class="rsvp-panel" hidden>

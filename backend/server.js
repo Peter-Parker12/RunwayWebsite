@@ -65,7 +65,7 @@ async function appendSheetRow(row) {
   try {
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: `${GOOGLE_SHEET_TAB}!A:K`,
+      range: `${GOOGLE_SHEET_TAB}!A:L`,
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] },
@@ -266,7 +266,7 @@ app.post('/api/rsvp', (req, res, next) => {
     return res.status(400).json({ error: 'Full name and email are required' });
   }
 
-  let arrival = null, transport = null;
+  let arrival = null, transport = null, channels = [];
   const note = String(req.body?.note || '').trim().slice(0, MAX_MESSAGE_LEN);
   const photoPath = req.files?.photo?.[0]?.filename || null;
   const voicePath = req.files?.voice?.[0]?.filename || null;
@@ -275,6 +275,8 @@ app.post('/api/rsvp', (req, res, next) => {
     arrival = String(req.body?.arrival || '').trim().slice(0, MAX_FIELD_LEN);
     if (!arrival) return res.status(400).json({ error: 'Arrival time is required' });
     transport = String(req.body?.transport || '').trim().slice(0, MAX_FIELD_LEN);
+    channels = [].concat(req.body?.channels || [])
+      .map(c => String(c).trim().slice(0, 40)).filter(Boolean).slice(0, 10);
   }
 
   const giftChoice = String(req.body?.giftChoice || '').trim(); // 'contribute' | 'wishlist' | ''
@@ -288,14 +290,14 @@ app.post('/api/rsvp', (req, res, next) => {
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      `INSERT INTO rsvps (fullname, email, attending, arrival, transport, note, photo_path, voice_path, public_token)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO rsvps (fullname, email, attending, arrival, transport, channels, note, photo_path, voice_path, public_token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (email) DO UPDATE SET
          fullname=EXCLUDED.fullname, attending=EXCLUDED.attending, arrival=EXCLUDED.arrival,
-         transport=EXCLUDED.transport, note=EXCLUDED.note, photo_path=EXCLUDED.photo_path,
-         voice_path=EXCLUDED.voice_path
+         transport=EXCLUDED.transport, channels=EXCLUDED.channels, note=EXCLUDED.note,
+         photo_path=EXCLUDED.photo_path, voice_path=EXCLUDED.voice_path
        RETURNING id, public_token, wishlist_item_id, (xmax <> 0) AS is_update`,
-      [fullname, email, attending, arrival, transport, note, photoPath, voicePath, newToken]
+      [fullname, email, attending, arrival, transport, channels, note, photoPath, voicePath, newToken]
     );
     rsvpId = rows[0].id;
     publicToken = rows[0].public_token;
@@ -347,6 +349,7 @@ app.post('/api/rsvp', (req, res, next) => {
     photoPath ? 'Yes' : 'No',
     voicePath ? 'Yes' : 'No',
     giftName || (giftChoice === 'contribute' ? 'Intends to contribute' : giftConflict ? 'Conflict — not claimed' : ''),
+    channels.join(', '),
   ]);
 
   if (transporter) {
@@ -466,7 +469,7 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
 
     appendSheetRow([
       new Date().toISOString(), 'Gift Claimed', rsvp.fullname, rsvp.email,
-      '', '', '', '', '', '', claim.rows[0].name,
+      '', '', '', '', '', '', claim.rows[0].name, '',
     ]);
 
     if (transporter) {
@@ -529,7 +532,7 @@ app.post('/api/wishlist/:id/release', async (req, res) => {
 
     appendSheetRow([
       new Date().toISOString(), 'Gift Released', rsvp.fullname, rsvp.email,
-      '', '', '', '', '', '', release.rows[0].name,
+      '', '', '', '', '', '', release.rows[0].name, '',
     ]);
 
     res.json({ id: release.rows[0].id, name: release.rows[0].name });

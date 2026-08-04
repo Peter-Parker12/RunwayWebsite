@@ -180,6 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         fd.append('arrival', arrival);
         fd.append('transport', document.getElementById('rsvp-transport').value.trim());
+        rsvpForm.querySelectorAll('input[name="channel"]:checked').forEach(c => fd.append('channels', c.value));
       }
 
       fd.append('note', document.getElementById('rsvp-note').value.trim());
