@@ -17,7 +17,11 @@ const pool = new Pool({
   database: process.env.PGDATABASE,
 });
 
-const mailEnabled = !!(process.env.SMTP_USER && process.env.SMTP_PASS && process.env.RSVP_TO);
+// Note: host (Hai) is no longer emailed on every RSVP/claim — new entries
+// are logged to a Google Sheet instead (see logRsvpToSheet/logClaimToSheet).
+// This transporter now only sends guest-facing emails (confirmation,
+// calendar invite, claim confirmation).
+const mailEnabled = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
 const transporter = mailEnabled
   ? nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
@@ -31,7 +35,7 @@ const transporter = mailEnabled
   : null;
 
 if (!mailEnabled) {
-  console.warn('SMTP_USER / SMTP_PASS / RSVP_TO not set — RSVP emails are disabled, submissions will still be saved.');
+  console.warn('SMTP_USER / SMTP_PASS not set — guest emails are disabled, submissions will still be saved.');
 }
 
 const MAX_NAME_LEN = 60;
@@ -299,25 +303,6 @@ app.post('/api/rsvp', (req, res, next) => {
     if (photoPath) attachments.push({ filename: photoPath, path: path.join(UPLOAD_DIR, photoPath) });
     if (voicePath) attachments.push({ filename: voicePath, path: path.join(UPLOAD_DIR, voicePath) });
 
-    const giftLine = giftName ? `Gift: ${giftName}` : giftChoice === 'contribute' ? 'Gift: Intends to contribute' : 'Gift: Not selected yet';
-
-    transporter.sendMail({
-      from: process.env.SMTP_USER,
-      to: process.env.RSVP_TO,
-      replyTo: email,
-      subject: `TIDE RSVP ${isUpdate ? 'Updated' : ''} — ${fullname} (${attending ? 'Attending' : 'Not attending'})`,
-      text: [
-        `Name: ${fullname}`,
-        `Email: ${email}`,
-        `Status: ${attending ? `Attending (arrival ${arrival}, transport: ${transport || 'not specified'})` : 'Not attending'}`,
-        `Note: ${note || '(none)'}`,
-        `Photo attached: ${photoPath ? 'yes' : 'no'}`,
-        `Voice message attached: ${voicePath ? 'yes' : 'no'}`,
-        giftLine,
-      ].join('\n'),
-      attachments,
-    }).catch(err => console.error('Failed to send RSVP notification email', err));
-
     const giftLineForGuest = giftName
       ? `You've claimed "${giftName}" from the wishlist — thank you!`
       : giftConflict
@@ -429,13 +414,6 @@ app.post('/api/wishlist/:id/claim', async (req, res) => {
     await client.query('COMMIT');
 
     if (transporter) {
-      transporter.sendMail({
-        from: process.env.SMTP_USER,
-        to: process.env.RSVP_TO,
-        subject: `TIDE Gift Claimed — ${claim.rows[0].name}`,
-        text: `${rsvp.fullname} (${rsvp.email}) just claimed "${claim.rows[0].name}" from the wishlist.`,
-      }).catch(err => console.error('Failed to send wishlist claim email', err));
-
       transporter.sendMail({
         from: process.env.SMTP_USER,
         to: rsvp.email,
