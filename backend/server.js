@@ -225,7 +225,8 @@ app.post('/api/rsvp', (req, res, next) => {
     return res.status(400).json({ error: 'Full name and email are required' });
   }
 
-  let arrival = null, transport = null, note = null;
+  let arrival = null, transport = null;
+  const note = String(req.body?.note || '').trim().slice(0, MAX_MESSAGE_LEN);
   const photoPath = req.files?.photo?.[0]?.filename || null;
   const voicePath = req.files?.voice?.[0]?.filename || null;
 
@@ -233,15 +234,19 @@ app.post('/api/rsvp', (req, res, next) => {
     arrival = String(req.body?.arrival || '').trim().slice(0, MAX_FIELD_LEN);
     if (!arrival) return res.status(400).json({ error: 'Arrival time is required' });
     transport = String(req.body?.transport || '').trim().slice(0, MAX_FIELD_LEN);
-  } else {
-    note = String(req.body?.note || '').trim().slice(0, MAX_MESSAGE_LEN);
   }
+
+  const giftChoice = String(req.body?.giftChoice || '').trim(); // 'contribute' | 'wishlist' | ''
+  const wishlistItemId = giftChoice === 'wishlist' ? Number(req.body?.wishlistItemId) : null;
 
   const newToken = crypto.randomUUID();
 
-  let rsvpId, publicToken, isUpdate, giftName = null;
+  let rsvpId, publicToken, isUpdate, giftName = null, giftConflict = false;
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
       `INSERT INTO rsvps (fullname, email, attending, arrival, transport, note, photo_path, voice_path, public_token)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (email) DO UPDATE SET
@@ -254,16 +259,39 @@ app.post('/api/rsvp', (req, res, next) => {
     rsvpId = rows[0].id;
     publicToken = rows[0].public_token;
     isUpdate = rows[0].is_update;
+    let existingWishlistItemId = rows[0].wishlist_item_id;
 
-    // A gift may already be claimed from a previous submission (claiming is
-    // its own action, separate from the RSVP form) — surface it here too.
-    if (rows[0].wishlist_item_id) {
-      const { rows: itemRows } = await pool.query('SELECT name FROM wishlist_items WHERE id=$1', [rows[0].wishlist_item_id]);
+    if (giftChoice === 'contribute') {
+      await client.query('UPDATE rsvps SET gift_type=$1 WHERE id=$2', ['contribute', rsvpId]);
+    } else if (giftChoice === 'wishlist' && Number.isInteger(wishlistItemId)) {
+      const claim = await client.query(
+        `UPDATE wishlist_items SET claimed_by_rsvp_id=$1, claimed_at=now()
+         WHERE id=$2 AND claimed_by_rsvp_id IS NULL RETURNING id, name`,
+        [rsvpId, wishlistItemId]
+      );
+      if (claim.rowCount > 0) {
+        await client.query('UPDATE rsvps SET gift_type=$1, wishlist_item_id=$2 WHERE id=$3', ['wishlist', wishlistItemId, rsvpId]);
+        giftName = claim.rows[0].name;
+        existingWishlistItemId = wishlistItemId;
+      } else {
+        giftConflict = true; // someone else claimed it in the same instant — RSVP still succeeds
+      }
+    }
+
+    await client.query('COMMIT');
+
+    // Surface whatever gift is actually attached to this RSVP (from this
+    // submission, or a prior one — claiming is otherwise its own action).
+    if (!giftName && existingWishlistItemId) {
+      const { rows: itemRows } = await pool.query('SELECT name FROM wishlist_items WHERE id=$1', [existingWishlistItemId]);
       giftName = itemRows[0]?.name || null;
     }
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error(err);
     return res.status(500).json({ error: 'Failed to save RSVP' });
+  } finally {
+    client.release();
   }
 
   if (transporter) {
@@ -271,23 +299,32 @@ app.post('/api/rsvp', (req, res, next) => {
     if (photoPath) attachments.push({ filename: photoPath, path: path.join(UPLOAD_DIR, photoPath) });
     if (voicePath) attachments.push({ filename: voicePath, path: path.join(UPLOAD_DIR, voicePath) });
 
+    const giftLine = giftName ? `Gift: ${giftName}` : giftChoice === 'contribute' ? 'Gift: Intends to contribute' : 'Gift: Not selected yet';
+
     transporter.sendMail({
       from: process.env.SMTP_USER,
       to: process.env.RSVP_TO,
       replyTo: email,
       subject: `TIDE RSVP ${isUpdate ? 'Updated' : ''} — ${fullname} (${attending ? 'Attending' : 'Not attending'})`,
-      text: (attending
-        ? [`Name: ${fullname}`, `Email: ${email}`, `Status: Attending`, `Arrival: ${arrival}`, `Transport: ${transport || 'Not specified'}`]
-        : [
-            `Name: ${fullname}`,
-            `Email: ${email}`,
-            `Note: ${note || '(none)'}`,
-            `Photo attached: ${photoPath ? 'yes' : 'no'}`,
-            `Voice message attached: ${voicePath ? 'yes' : 'no'}`,
-          ]
-      ).concat(`Gift: ${giftName || 'Not selected yet'}`).join('\n'),
+      text: [
+        `Name: ${fullname}`,
+        `Email: ${email}`,
+        `Status: ${attending ? `Attending (arrival ${arrival}, transport: ${transport || 'not specified'})` : 'Not attending'}`,
+        `Note: ${note || '(none)'}`,
+        `Photo attached: ${photoPath ? 'yes' : 'no'}`,
+        `Voice message attached: ${voicePath ? 'yes' : 'no'}`,
+        giftLine,
+      ].join('\n'),
       attachments,
     }).catch(err => console.error('Failed to send RSVP notification email', err));
+
+    const giftLineForGuest = giftName
+      ? `You've claimed "${giftName}" from the wishlist — thank you!`
+      : giftConflict
+      ? "The gift you picked was just claimed by someone else — use the link below to pick another."
+      : giftChoice === 'contribute'
+      ? 'Thank you for wanting to contribute to the journey!'
+      : null;
 
     if (attending) {
       transporter.sendMail({
@@ -303,10 +340,12 @@ app.post('/api/rsvp', (req, res, next) => {
           '',
           'A calendar invite is attached.',
           '',
+          giftLineForGuest,
+          giftLineForGuest ? '' : null,
           `Want to change your RSVP or manage a gift later? Use this link anytime: ${manageLink(publicToken)}`,
           '',
           '— TIDE',
-        ].join('\n'),
+        ].filter(line => line !== null).join('\n'),
         icalEvent: {
           filename: 'invite.ics',
           method: 'PUBLISH',
@@ -323,15 +362,17 @@ app.post('/api/rsvp', (req, res, next) => {
           '',
           "Thank you for letting us know, and for the message you left — it means a lot.",
           '',
+          giftLineForGuest,
+          giftLineForGuest ? '' : null,
           `Want to update your RSVP or manage a gift later? Use this link anytime: ${manageLink(publicToken)}`,
           '',
           '— TIDE',
-        ].join('\n'),
+        ].filter(line => line !== null).join('\n'),
       }).catch(err => console.error('Failed to send guest confirmation email', err));
     }
   }
 
-  res.status(201).json({ ok: true, id: rsvpId, token: publicToken, updated: isUpdate });
+  res.status(201).json({ ok: true, id: rsvpId, token: publicToken, updated: isUpdate, giftConflict, giftName });
 });
 
 app.get('/api/wishlist', async (req, res) => {

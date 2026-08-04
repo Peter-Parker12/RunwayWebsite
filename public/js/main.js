@@ -46,19 +46,27 @@ document.addEventListener('DOMContentLoaded', () => {
   }, { threshold: 0.15 });
   revealEls.forEach(el => io.observe(el));
 
-  // RSVP form (invitation-box.html) — name+email, then an attending/not
-  // branch. Both branches reveal a panel with their own "Send RSVP" button:
-  // attending asks for arrival time + transportation, not-attending offers
-  // a note/voice/photo. Resubmitting with the same email updates the guest's
-  // existing RSVP instead of creating a duplicate. Either path reveals a
-  // shared post-submission gift panel (contribute or claim a wishlist item).
+  // RSVP form (invitation-box.html) — name+email, an attending/not toggle,
+  // an always-visible "send a few words / voice / photo" section, then a
+  // gift chooser (Contribute or Wishlist) *above* the single Send RSVP
+  // button — the guest picks a gift before submitting; the server attempts
+  // to claim it atomically as part of the same request. On success (or once
+  // returning later via a manage-RSVP link), the form collapses down to
+  // just the gift panel so managing a claim never requires refilling RSVP
+  // details.
   const rsvpForm = document.getElementById('rsvp-form');
   if (rsvpForm) {
     let attending = null;
+    let selectedGiftChoice = ''; // 'contribute' | 'wishlist' | ''
+    let selectedWishlistItemId = null;
     const voiceApi = setUpVoiceRecorder();
 
+    const identityFields = document.getElementById('rsvp-identity-fields');
+    const attendingToggle = document.getElementById('rsvp-attending-toggle');
     const panelAttending = document.getElementById('rsvp-panel-attending');
     const panelNotAttending = document.getElementById('rsvp-panel-not-attending');
+    const messageSection = document.getElementById('rsvp-message-section');
+    const submitRow = document.getElementById('rsvp-submit-row');
     const choiceAttending = document.getElementById('choice-attending');
     const choiceNotAttending = document.getElementById('choice-not-attending');
 
@@ -79,25 +87,84 @@ document.addEventListener('DOMContentLoaded', () => {
       panelAttending.hidden = true;
     });
 
-    document.getElementById('rsvp-send-attending').addEventListener('click', submitRsvp);
-    document.getElementById('rsvp-send-note').addEventListener('click', submitRsvp);
+    // Pre-submit gift chooser — selection only, no API calls yet. The same
+    // #choice-contribute/#choice-wishlist buttons get re-wired into
+    // claim/unclaim mode by wireGiftPanel() once a token exists (see
+    // collapseToGiftPanel below), so these listeners are only ever active
+    // before the RSVP has been submitted.
+    const choiceContribute = document.getElementById('choice-contribute');
+    const choiceWishlist = document.getElementById('choice-wishlist');
+    const giftPanelContribute = document.getElementById('gift-panel-contribute');
+    const giftPanelWishlist = document.getElementById('gift-panel-wishlist');
 
-    // Returning guest: pick up their token from a manage-RSVP email link
-    // (?token=...) or from this browser's local storage, and jump straight
-    // to their gift panel so they can claim/unclaim without resubmitting.
-    const urlToken = new URLSearchParams(location.search).get('token');
-    const savedToken = urlToken || localStorage.getItem('tide_rsvp_token');
-    if (savedToken) {
-      localStorage.setItem('tide_rsvp_token', savedToken);
-      document.getElementById('rsvp-panel-gift').hidden = false;
-      wireGiftPanel(savedToken);
+    choiceContribute.addEventListener('click', () => {
+      selectedGiftChoice = selectedGiftChoice === 'contribute' ? '' : 'contribute';
+      selectedWishlistItemId = null;
+      choiceContribute.classList.toggle('active', selectedGiftChoice === 'contribute');
+      choiceWishlist.classList.remove('active');
+      giftPanelContribute.hidden = selectedGiftChoice !== 'contribute';
+      giftPanelWishlist.hidden = true;
+    });
+
+    choiceWishlist.addEventListener('click', async () => {
+      const nowSelected = selectedGiftChoice !== 'wishlist';
+      selectedGiftChoice = nowSelected ? 'wishlist' : '';
+      choiceWishlist.classList.toggle('active', nowSelected);
+      choiceContribute.classList.remove('active');
+      giftPanelContribute.hidden = true;
+      giftPanelWishlist.hidden = !nowSelected;
+      if (nowSelected) await renderWishlistSelect();
+    });
+
+    async function renderWishlistSelect() {
+      const list = document.getElementById('wishlist-list');
+      list.innerHTML = 'Loading…';
+      const items = await (await fetch('/api/wishlist')).json();
+      list.innerHTML = '';
+      items.forEach(item => {
+        const row = document.createElement('div');
+        const isSelected = selectedWishlistItemId === item.id;
+        row.className = 'wishlist-item' + (item.claimed ? ' claimed' : '') + (isSelected ? ' selected' : '');
+        const label = item.claimed ? 'Taken' : (isSelected ? 'Selected' : 'Select this gift');
+        row.innerHTML = `<span class="name">${item.name}</span>` +
+          `<button type="button" class="btn"${item.claimed ? ' disabled' : ''}>${label}</button>`;
+        if (!item.claimed) {
+          row.querySelector('button').addEventListener('click', () => {
+            selectedWishlistItemId = isSelected ? null : item.id;
+            renderWishlistSelect();
+          });
+        }
+        list.appendChild(row);
+      });
     }
 
-    async function submitRsvp() {
+    // Collapses the form down to just the gift panel — used right after a
+    // successful submit, and for a returning guest who never needs to fill
+    // out the form again just to manage their gift.
+    function collapseToGiftPanel(token) {
+      identityFields.hidden = true;
+      attendingToggle.hidden = true;
+      panelAttending.hidden = true;
+      panelNotAttending.hidden = true;
+      messageSection.hidden = true;
+      submitRow.hidden = true;
+      wireGiftPanel(token);
+      document.getElementById('gift-panel-contribute').hidden = true;
+      document.getElementById('gift-panel-wishlist').hidden = true;
+      document.getElementById('choice-contribute').classList.remove('active');
+      document.getElementById('choice-wishlist').classList.remove('active');
+    }
+
+    rsvpForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
       const fullname = document.getElementById('rsvp-fullname').value.trim();
       const email = document.getElementById('rsvp-email').value.trim();
       if (!fullname || !email) {
         alert('Please enter your name and email.');
+        return;
+      }
+      if (attending === null) {
+        alert('Please let us know if you can attend.');
         return;
       }
 
@@ -113,18 +180,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         fd.append('arrival', arrival);
         fd.append('transport', document.getElementById('rsvp-transport').value.trim());
-      } else {
-        fd.append('note', document.getElementById('rsvp-note').value.trim());
-        const photoInput = document.getElementById('rsvp-photo');
-        if (photoInput.files[0]) fd.append('photo', photoInput.files[0]);
-        const voiceBlob = voiceApi.getVoiceBlob();
-        if (voiceBlob) fd.append('voice', voiceBlob, `voice.${voiceBlob.type.includes('mp4') ? 'm4a' : 'webm'}`);
       }
 
-      const trigger = document.getElementById(attending ? 'rsvp-send-attending' : 'rsvp-send-note');
-      const originalLabel = trigger.textContent;
-      trigger.disabled = true;
-      trigger.textContent = 'Sending…';
+      fd.append('note', document.getElementById('rsvp-note').value.trim());
+      const photoInput = document.getElementById('rsvp-photo');
+      if (photoInput.files[0]) fd.append('photo', photoInput.files[0]);
+      const voiceBlob = voiceApi.getVoiceBlob();
+      if (voiceBlob) fd.append('voice', voiceBlob, `voice.${voiceBlob.type.includes('mp4') ? 'm4a' : 'webm'}`);
+
+      if (selectedGiftChoice === 'contribute') {
+        fd.append('giftChoice', 'contribute');
+      } else if (selectedGiftChoice === 'wishlist' && selectedWishlistItemId) {
+        fd.append('giftChoice', 'wishlist');
+        fd.append('wishlistItemId', String(selectedWishlistItemId));
+      }
+
+      const submitBtn = document.getElementById('rsvp-submit');
+      const originalLabel = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending…';
 
       try {
         const res = await fetch('/api/rsvp', { method: 'POST', body: fd });
@@ -136,16 +210,28 @@ document.addEventListener('DOMContentLoaded', () => {
           ? 'Thank you — your RSVP has been updated.'
           : 'Thank you — your RSVP has been received.';
         document.getElementById('rsvp-confirm').style.display = 'block';
-        document.getElementById('rsvp-panel-gift').hidden = false;
-        wireGiftPanel(data.token);
-        choiceAttending.disabled = true;
-        choiceNotAttending.disabled = true;
-        trigger.closest('.submit-row').style.display = 'none';
+
+        if (data.giftConflict) {
+          showToast('Sorry — that gift was just claimed by someone else. Pick another below.');
+        }
+
+        collapseToGiftPanel(data.token);
       } catch (err) {
         alert('Sorry, your RSVP could not be sent. Please try again.');
-        trigger.disabled = false;
-        trigger.textContent = originalLabel;
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
       }
+    });
+
+    // Returning guest: pick up their token from a manage-RSVP email link
+    // (?token=...) or from this browser's local storage, and skip straight
+    // to the gift panel — no need to fill out the RSVP again.
+    const urlToken = new URLSearchParams(location.search).get('token');
+    const savedToken = urlToken || localStorage.getItem('tide_rsvp_token');
+    if (savedToken) {
+      localStorage.setItem('tide_rsvp_token', savedToken);
+      document.getElementById('rsvp-confirm').style.display = 'none';
+      collapseToGiftPanel(savedToken);
     }
   }
 });

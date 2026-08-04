@@ -349,6 +349,9 @@ button.btn{font-family:var(--sans); background:none; cursor:pointer;}
   height:168px;
 }
 .wishlist-item.claimed{opacity:.45;}
+.wishlist-item.selected{border-color:var(--gold);}
+.wishlist-item.selected .btn{background:var(--gold); color:var(--black);}
+.wishlist-item.selected .btn::before{display:none;}
 .wishlist-item .name{
   font-family:var(--serif); font-size:1.05rem; line-height:1.35;
   display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
