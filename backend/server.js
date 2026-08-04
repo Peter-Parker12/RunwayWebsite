@@ -44,6 +44,9 @@ if (!mailEnabled) {
 const GOOGLE_CREDENTIALS_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const GOOGLE_SHEET_TAB = process.env.GOOGLE_SHEET_TAB || 'Sheet1';
+// Quoted for use in A1-notation ranges — required whenever the tab name
+// contains a space (e.g. "Gift Tracking"), harmless otherwise.
+const SHEET_TAB_REF = `'${GOOGLE_SHEET_TAB.replace(/'/g, "''")}'`;
 
 const sheetsEnabled = !!(GOOGLE_CREDENTIALS_PATH && GOOGLE_SHEET_ID && fs.existsSync(GOOGLE_CREDENTIALS_PATH));
 const sheetsClient = sheetsEnabled
@@ -73,7 +76,7 @@ async function appendSheetRow(row) {
   try {
     const res = await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: `${GOOGLE_SHEET_TAB}!A:L`,
+      range: `${SHEET_TAB_REF}!A:L`,
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] },
@@ -91,7 +94,7 @@ async function updateSheetGiftCell(sheetRow, giftValue) {
   try {
     await sheetsClient.spreadsheets.values.update({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: `${GOOGLE_SHEET_TAB}!K${sheetRow}`,
+      range: `${SHEET_TAB_REF}!K${sheetRow}`,
       valueInputOption: 'RAW',
       requestBody: { values: [[giftValue]] },
     });
@@ -108,7 +111,7 @@ async function updateSheetRow(sheetRow, values) {
   try {
     await sheetsClient.spreadsheets.values.update({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: `${GOOGLE_SHEET_TAB}!A${sheetRow}:L${sheetRow}`,
+      range: `${SHEET_TAB_REF}!A${sheetRow}:L${sheetRow}`,
       valueInputOption: 'RAW',
       requestBody: { values: [values] },
     });
@@ -145,7 +148,7 @@ async function findSheetRowByEmail(email) {
   try {
     const res = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: `${GOOGLE_SHEET_TAB}!D:D`,
+      range: `${SHEET_TAB_REF}!D:D`,
     });
     const values = res.data.values || [];
     const target = email.trim().toLowerCase();
@@ -168,7 +171,7 @@ async function sheetRowMatchesEmail(sheetRow, email) {
   try {
     const res = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: `${GOOGLE_SHEET_TAB}!D${sheetRow}`,
+      range: `${SHEET_TAB_REF}!D${sheetRow}`,
     });
     const cell = res.data.values?.[0]?.[0] || '';
     return cell.trim().toLowerCase() === email.trim().toLowerCase();
