@@ -292,6 +292,11 @@ async function ensureSchema() {
       referral_link = EXCLUDED.referral_link
   `);
 
+  // wishlist_item_id (a single-item cache column) has had zero reads/writes
+  // since claiming became multi-item — drop it so its FK stops blocking
+  // deletes/edits of wishlist items a legacy RSVP row happened to reference.
+  await pool.query(`ALTER TABLE rsvps DROP COLUMN IF EXISTS wishlist_item_id`);
+
   // Dropped from the wishlist — no longer offered.
   await pool.query(`DELETE FROM wishlist_items WHERE name = 'AirTag (x2)'`);
 
@@ -300,7 +305,6 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS photo_path TEXT`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS voice_path TEXT`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS gift_type TEXT`);
-  await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS wishlist_item_id INTEGER REFERENCES wishlist_items(id)`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS public_token TEXT`);
   await pool.query(`ALTER TABLE rsvps ADD COLUMN IF NOT EXISTS sheet_row INTEGER`);
 
